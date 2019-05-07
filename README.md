@@ -1,4 +1,4 @@
-# PS4-Kernel-Loader (for IDA 7.0+)
+# PS4-Kernel-Loader
 
 SocraticBliss (R)
 
