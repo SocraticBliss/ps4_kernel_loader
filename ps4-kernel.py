@@ -447,7 +447,8 @@ class Dynamic:
         elif self.TAG == Dynamic.DT_SCE_PLTGOT:
             Dynamic.GOT = self.VALUE
         elif self.TAG in [Dynamic.DT_SCE_NEEDED_MODULE, Dynamic.DT_SCE_IMPORT_LIB,
-                          Dynamic.DT_SCE_IMPORT_LIB_ATTR, Dynamic.DT_SCE_MODULE_INFO,
+                          Dynamic.DT_SCE_IMPORT_LIB_ATTR, Dynamic.DT_SCE_EXPORT_LIB,
+                          Dynamic.DT_SCE_EXPORT_LIB_ATTR, Dynamic.DT_SCE_MODULE_INFO,
                           Dynamic.DT_SCE_MODULE_ATTR, Dynamic.DT_SCE_ORIGINAL_FILENAME]:
             self.ID             = self.VALUE >> 48
             self.VERSION_MINOR  = (self.VALUE >> 40) & 0xF
@@ -457,14 +458,14 @@ class Dynamic:
             if self.TAG in [Dynamic.DT_SCE_NEEDED_MODULE, Dynamic.DT_SCE_MODULE_INFO]:
                 return '%s | %#x | MID:%#x Version:%i.%i | %#x' % \
                        (self.tag(), self.VALUE, self.ID, self.VERSION_MAJOR, self.VERSION_MINOR, self.INDEX)
-            elif self.TAG == Dynamic.DT_SCE_IMPORT_LIB:
+            elif self.TAG in [Dynamic.DT_SCE_IMPORT_LIB, Dynamic.DT_SCE_EXPORT_LIB]:
                 if self.INDEX not in modules:
                     modules[self.INDEX] = 0
                 return '%s | %#x | LID:%#x Version:%i | %#x' % \
                        (self.tag(), self.VALUE, self.ID, self.VERSION_MAJOR, self.INDEX)
             elif self.TAG == Dynamic.DT_SCE_MODULE_ATTR:
                 return '%s | %#x | %s' % (self.tag(), self.VALUE, self.mod_attribute())
-            elif self.TAG == Dynamic.DT_SCE_IMPORT_LIB_ATTR:
+            elif self.TAG in [Dynamic.DT_SCE_IMPORT_LIB_ATTR, Dynamic.DT_SCE_EXPORT_LIB_ATTR]:
                 return '%s | %#x | LID:%#x Attributes:%s' % \
                        (self.tag(), self.VALUE, self.ID, self.lib_attribute())
             elif self.TAG == Dynamic.DT_SCE_ORIGINAL_FILENAME:
@@ -630,7 +631,8 @@ if __name__ == '__main__':
         
         # Kiwidog's __stack_chk_fail
         def kiwidog(address, end, search):
-            magic = idaapi.find_binary(address, end, search, 0x0, idc.SEARCH_DOWN)
+            
+            magic = idaapi.find_binary(address, end, search, 0x0, SEARCH_DOWN)
             function = idaapi.get_func(idaapi.get_first_dref_to(magic))
             idaapi.set_name(function.start_ea, '__stack_chk_fail', SN_NOCHECK | SN_NOWARN)
             
@@ -648,12 +650,24 @@ if __name__ == '__main__':
         
         # Pablo's IDC
         def pablo(address, end, search):
+            
             while address < end:
                 address = idaapi.find_binary(address, end, search, 0x10, SEARCH_DOWN)
-                idaapi.do_unknown(address, 0)
-                idaapi.create_insn(address)
-                idaapi.add_func(address, BADADDR)
-                address += 4
+                
+                if address > idaapi.get_segm_by_name('DATA').start_ea:
+                    offset = address - 0x3
+                    
+                    if idaapi.isUnknown(idaapi.getFlags(offset)):
+                        if idaapi.get_qword(offset) <= end:
+                            idaapi.create_data(offset, FF_QWORD, 0x8, BADNODE)
+                    
+                    address = offset + 4
+                
+                else:
+                    idaapi.do_unknown(address, 0)
+                    idaapi.create_insn(address)
+                    idaapi.add_func(address, BADADDR)
+                    address += 4
         
         # Znullptr's Syscalls
         def znullptr(address, end, search, struct):
@@ -671,7 +685,7 @@ if __name__ == '__main__':
             idaapi.set_name(sysnames, 'sv_syscallnames', SN_NOCHECK | SN_NOWARN)
             
             # Get the list of syscalls
-            offset = idaapi.find_binary(address, cvar.inf.maxEA, '73 79 73 63 61 6C 6C 00 65 78 69 74 00', 0x10, idc.SEARCH_DOWN)
+            offset = idaapi.find_binary(address, cvar.inf.maxEA, '73 79 73 63 61 6C 6C 00 65 78 69 74 00', 0x10, SEARCH_DOWN)
             
             numsyscalls = idaapi.get_qword(sysvec)
             
@@ -697,6 +711,7 @@ if __name__ == '__main__':
         
         # Open File Dialog...
         def accept_file(f, n):
+            
             if not isinstance(n, (int, long)) or n == 0:
                 return 'PS4 - Kernel' if f.read(4) == '\x7FELF' and Binary(f).E_TYPE == Binary(f).ET_EXEC else 0
         
@@ -711,6 +726,8 @@ if __name__ == '__main__':
             
             # Segment Loading...
             for segm in ps.E_SEGMENTS:
+                
+                # Process Loadable Segments...
                 if segm.name() in ['CODE', 'DATA', 'SCE_RELRO']:
                     
                     address = segm.MEM_ADDR
@@ -735,7 +752,7 @@ if __name__ == '__main__':
                     idc.set_segm_attr(address, SEGATTR_PERM, segm.flags())
                 
                 # Process Dynamic Segment...
-                if segm.name() == 'DYNAMIC':
+                elif segm.name() == 'DYNAMIC':
                     
                     base = idaapi.get_segm_by_name('CODE').start_ea
                     end  = idaapi.get_segm_by_name('CODE').end_ea
@@ -792,8 +809,18 @@ if __name__ == '__main__':
                     for entry in xrange(Dynamic.HASHTABSZ / 0x8):
                         idaapi.create_struct(location + (entry * 0x8), 0x8, struct)
             
-            # Fix-up left-over functions...
-            code = idaapi.get_segm_by_name('CODE')
+            # Fix-up...
+            relro   = idaapi.get_segm_by_name('SCE_RELRO')
+            address = relro.start_ea
+            end     = relro.end_ea
+            
+            del_items(address, DELIT_SIMPLE, end - address)
+            
+            while address < end:
+                create_data(address, FF_QWORD, 0x8, BADNODE)
+                address += 0x8
+            
+            code    = idaapi.get_segm_by_name('CODE')
             address = base = code.start_ea
             end     = code.end_ea
             
@@ -837,7 +864,7 @@ if __name__ == '__main__':
                            ('Size in file image', 0x8),
                            ('Size in memory image', 0x8),
                            ('Alignment\n', 0x8)]
-            
+                
                 for (comment, size) in members:
                     flags = idaapi.get_flags_by_size(size)
                     
@@ -845,10 +872,10 @@ if __name__ == '__main__':
                     idc.set_cmt(address, comment, False)
                     address += size
             
-            # Start
+            # start
             idc.add_entry(ps.E_START_ADDR, ps.E_START_ADDR, 'start', True)
             
-            # init
+            # .init
             address = Dynamic.INIT
             idaapi.do_unknown(address, 0)
             idaapi.create_insn(address)
@@ -861,24 +888,10 @@ if __name__ == '__main__':
             idaapi.create_insn(address)
             idaapi.add_func(address, BADADDR)
             idaapi.set_name(address, 'Xfast_syscall', SN_NOCHECK | SN_NOWARN)
-           
+            
             # Wait for the AutoAnalyzer to Complete...
             print('# Waiting for the AutoAnalyzer to Complete...')
             idaapi.auto_wait()
-            
-            # --------------------------------------------------------------------------------------------------------
-            # Pablo's IDC
-            print('# Processing Pablo\'s IDC...')
-            
-            # Push it real good...
-            pablo(base, end, 'C5 FA 5A C0 C5 F2 5A C9 C5 EA 5A D2 C5 FB 59 C1')
-            pablo(base, end, 'C5 F9 7E C0 31 C9')
-            pablo(base, end, '48 89 E0 55 53')
-            pablo(base, end, 'B8 2D 00 00 00 C3')
-            pablo(base, end, '31 C0 C3')
-            pablo(base, end, '55 48 89')
-            pablo(base, end, '48 81 EC A0 00 00 00 C7')
-            pablo(base, end, '48 81 EC A8 00 00 00')
             
             # --------------------------------------------------------------------------------------------------------
             # Znullptr's syscalls
@@ -900,15 +913,47 @@ if __name__ == '__main__':
             
             znullptr(base, end, '4F 52 42 49 53 20 6B 65 72 6E 65 6C 20 53 45 4C 46', struct)
             
-            # Dumped Data Pointers
-            #if dumped: 
+            # --------------------------------------------------------------------------------------------------------
+            # Pablo's IDC
+            print('# Processing Pablo\'s IDC...')
+            
+            # Script 1) Push it real good...
+            pablo(base, end, 'C5 FA 5A C0 C5 F2 5A C9 C5 EA 5A D2 C5 FB 59 C1')
+            pablo(base, end, 'C5 F9 7E C0 31 C9')
+            pablo(base, end, '48 89 E0 55 53')
+            pablo(base, end, 'B8 2D 00 00 00 C3')
+            pablo(base, end, '31 C0 C3')
+            pablo(base, end, '55 48 89')
+            pablo(base, end, '48 81 EC A0 00 00 00 C7')
+            pablo(base, end, '48 81 EC A8 00 00 00')
+            
+            # Script 2) Fix-up Dumped Data Pointers...
+            if dumped:
+                data = idaapi.get_segm_by_name('DATA').start_ea
+                end  = idaapi.get_segm_by_name('DATA').end_ea
+                
+                pablo(data, end, '?? FF FF FF FF')
             
             # --------------------------------------------------------------------------------------------------------
             # Kiwidog's __stack_chk_fail
             print('# Processing Kiwidog\'s Stack Functions...')
             
             kiwidog(base, end, '73 74 61 63 6B 20 6F 76 65 72 66 6C 6F 77 20 64 65 74 65 63 74 65 64 3B')
-                     
+            
+            # --------------------------------------------------------------------------------------------------------
+            # Final Pass
+            print('# Performing Final Pass...')
+            address = base
+            while address < code.end_ea:
+                address = idaapi.find_not_func(address, SEARCH_DOWN)
+                
+                if idaapi.isUnknown(idaapi.getFlags(address)):
+                    idaapi.create_insn(address)
+                else:
+                    idc.add_func(address)
+                
+                address += 4
+            
             print('# Done!')
             return 1
     
