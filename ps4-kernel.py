@@ -56,7 +56,7 @@ class Binary:
     def __init__(self, f):
         f.seek(0)
         
-        self.EI_MAGIC         = struct.unpack('<I', f.read(4))[0]
+        self.EI_MAGIC         = struct.unpack('<4s', f.read(4))[0]
         self.EI_CLASS         = struct.unpack('<B', f.read(1))[0]
         self.EI_DATA          = struct.unpack('<B', f.read(1))[0]
         self.EI_VERSION       = struct.unpack('<B', f.read(1))[0]
@@ -408,17 +408,31 @@ class Dynamic:
         }.get(self.INDEX, 'Missing Module Attribute!!!')
     
     def process(self, dumped, stubs, modules):
+        self.VALUE += dumped
+        
         if self.TAG == Dynamic.DT_NEEDED:
             stubs[self.VALUE] = 0
+        elif self.TAG == Dynamic.DT_PLTGOT:
+            Dynamic.GOT64 = self.VALUE
+        elif self.TAG == Dynamic.DT_HASH:
+            Dynamic.HASHTAB64 = self.VALUE            
+        elif self.TAG == Dynamic.DT_STRTAB:
+            Dynamic.STRTAB64 = self.VALUE
+        elif self.TAG == Dynamic.DT_SYMTAB:
+            Dynamic.SYMTAB64 = self.VALUE            
+        elif self.TAG == Dynamic.DT_STRSZ:
+            Dynamic.STRSZ64 = self.VALUE 
+        elif self.TAG == Dynamic.DT_INIT:
+            Dynamic.INIT = self.VALUE
+        elif self.TAG == Dynamic.DT_FINI:
+            Dynamic.FINI = self.VALUE
         elif self.TAG == Dynamic.DT_SONAME:
             stubs[self.VALUE] = 0
         elif self.TAG == Dynamic.DT_SCE_STRTAB:
-            self.VALUE += dumped
             Dynamic.STRTAB = self.VALUE
         elif self.TAG == Dynamic.DT_SCE_STRSZ:
             Dynamic.STRTABSZ = self.VALUE
         elif self.TAG == Dynamic.DT_SCE_SYMTAB:
-            self.VALUE += dumped
             Dynamic.SYMTAB = self.VALUE
         elif self.TAG == Dynamic.DT_SCE_SYMTABSZ:
             Dynamic.SYMTABSZ = self.VALUE
@@ -430,20 +444,13 @@ class Dynamic:
             if self.VALUE == 0x7:
                 return '%s | %#x | DT_RELA' % (self.tag(), self.VALUE)
         elif self.TAG == Dynamic.DT_SCE_RELA:
-            self.VALUE += dumped
             Dynamic.RELATAB = self.VALUE
         elif self.TAG == Dynamic.DT_SCE_RELASZ:
             Dynamic.RELATABSZ = self.VALUE
         elif self.TAG == Dynamic.DT_SCE_HASH:
-            self.VALUE += dumped
             Dynamic.HASHTAB = self.VALUE
         elif self.TAG == Dynamic.DT_SCE_HASHSZ:
             Dynamic.HASHTABSZ = self.VALUE
-        elif self.TAG == Dynamic.DT_INIT:
-            self.VALUE += dumped
-            Dynamic.INIT = self.VALUE
-        elif self.TAG == Dynamic.DT_FINI:
-            Dynamic.FINI = self.VALUE
         elif self.TAG == Dynamic.DT_SCE_PLTGOT:
             Dynamic.GOT = self.VALUE
         elif self.TAG in [Dynamic.DT_SCE_NEEDED_MODULE, Dynamic.DT_SCE_IMPORT_LIB,
@@ -615,10 +622,10 @@ class Symbol:
             Symbol.ST_WEAK_TLS        : 'Weak : TLS',
         }.get(self.INFO, 'Missing Symbol Information!!!')
     
-    def process(self, functions):
+    def process(self, symbols):
         if self.NAME != 0:
-            functions[self.NAME] = 0
-        
+            symbols[self.NAME] = 0        
+
         return '%#x | %s | %#x | %#x | %#x | %#x' % \
                (self.NAME, self.info(), self.OTHER, self.INDEX, self.VALUE, self.SIZE)
 
@@ -673,7 +680,7 @@ if __name__ == '__main__':
         def znullptr(address, end, search, struct):
             
             magic = idaapi.find_binary(address, end, search, 0x10, idc.SEARCH_DOWN)
-            pattern = '%02X %02X %02X %02X FF FF FF FF' % (magic & 0xFF , ((magic >> 0x8) & 0xFF) , ((magic >> 0x10) & 0xFF) , ((magic >> 0x18) & 0xFF))
+            pattern = '%02X %02X %02X %02X FF FF FF FF' % (magic & 0xFF, ((magic >> 0x8) & 0xFF), ((magic >> 0x10) & 0xFF), ((magic >> 0x18) & 0xFF))
             
             sysvec = idaapi.find_binary(address, cvar.inf.maxEA, pattern, 0x10, idc.SEARCH_UP) - 0x60
             idaapi.set_name(sysvec, 'sysentvec', SN_NOCHECK | SN_NOWARN)
@@ -711,9 +718,11 @@ if __name__ == '__main__':
         
         # Open File Dialog...
         def accept_file(f, n):
-            
-            if not isinstance(n, (int, long)) or n == 0:
-                return 'PS4 - Kernel' if f.read(4) == '\x7FELF' and Binary(f).E_TYPE == Binary(f).ET_EXEC else 0
+            try:
+                if not isinstance(n, (int, long)) or n == 0:
+                    return 'PS4 - Kernel' if f.read(4) == '\x7FELF' and Binary(f).E_TYPE == Binary(f).ET_EXEC else 0
+            except:
+                pass
         
         # Load Input Binary...
         def load_file(f, neflags, format):
@@ -726,6 +735,8 @@ if __name__ == '__main__':
             
             # Segment Loading...
             for segm in ps.E_SEGMENTS:
+                if segm.name() == 'PHDR':
+                    kASLR = False if segm.FILE_SIZE == 0x118 else True
                 
                 # Process Loadable Segments...
                 if segm.name() in ['CODE', 'DATA', 'SCE_RELRO']:
@@ -734,7 +745,7 @@ if __name__ == '__main__':
                     size = segm.MEM_SIZE
                     
                     # Dumped Kernel Fix-ups
-                    if segm.name() in ['DATA', 'SCE_RELRO'] and idaapi.get_segm_by_name('CODE').start_ea != 0xFFFFFFFF82200000:
+                    if segm.name() in ['DATA', 'SCE_RELRO'] and (idaapi.get_segm_by_name('CODE').start_ea != 0xFFFFFFFF82200000 or not kASLR):
                         offset = address - idaapi.get_segm_by_name('CODE').start_ea
                         dumped = segm.MEM_SIZE
                     else:
@@ -778,22 +789,7 @@ if __name__ == '__main__':
                     for entry in xrange(segm.MEM_SIZE / 0x10):
                         idaapi.create_struct(location + (entry * 0x10), 0x10, struct)
                         idc.set_cmt(location + (entry * 0x10), Dynamic(f).process(dumped, stubs, modules), False)
-                    
-                    # --------------------------------------------------------------------------------------------------------
-                    # Relocation Entry Structure (with specific addends)
-                    members = [('offset', 'Offset (String Index)', 0x8),
-                               ('info', 'Info (Symbol Index : Relocation Code)', 0x8),
-                               ('addend', 'AddEnd', 0x8)]
-                    struct = segm.struct('Relocation', members)
-                    
-                    # Relocation Table (with specific addends)
-                    location = Dynamic.RELATAB
-                    
-                    f.seek(location - base)
-                    for entry in xrange(Dynamic.RELATABSZ / 0x18):
-                        idaapi.create_struct(location + (entry * 0x18), 0x18, struct)
-                        idc.set_cmt(location + (entry * 0x18), Relocation(f).process(dumped, end), False)
-                    
+
                     # --------------------------------------------------------------------------------------------------------
                     # Hash Entry Structure
                     members = [('bucket', 'Bucket', 0x2),
@@ -803,23 +799,83 @@ if __name__ == '__main__':
                     struct = segm.struct('Hash', members)                    
                     
                     # Hash Table
-                    location = Dynamic.HASHTAB
+                    try:
+                        location = Dynamic.HASHTAB
+                        size = Dynamic.HASHTABSZ
+                    
+                    except:
+                        location = Dynamic.HASHTAB64
+                        size = Dynamic.SYMTAB64 - location
                     
                     f.seek(location - base)
-                    for entry in xrange(Dynamic.HASHTABSZ / 0x8):
-                        idaapi.create_struct(location + (entry * 0x8), 0x8, struct)
+                    for entry in xrange(size / 0x8):
+                        idaapi.create_struct(location + (entry * 0x8), 0x8, struct) 
+                    
+                    if kASLR:
+                        
+                        # --------------------------------------------------------------------------------------------------------
+                        # Relocation Entry Structure (with specific addends)
+                        members = [('offset', 'Offset (String Index)', 0x8),
+                                   ('info', 'Info (Symbol Index : Relocation Code)', 0x8),
+                                   ('addend', 'AddEnd', 0x8)]
+                        struct = segm.struct('Relocation', members)
+                        
+                        # Relocation Table (with specific addends)
+                        location = Dynamic.RELATAB
+                        
+                        f.seek(location - base)
+                        for entry in xrange(Dynamic.RELATABSZ / 0x18):
+                            idaapi.create_struct(location + (entry * 0x18), 0x18, struct)
+                            idc.set_cmt(location + (entry * 0x18), Relocation(f).process(dumped, end), False)
+
+                        # .init
+                        address = Dynamic.INIT
+                        idaapi.do_unknown(address, 0)
+                        idaapi.create_insn(address)
+                        idaapi.add_func(address, BADADDR)
+                        idaapi.set_name(address, '_init', SN_NOCHECK | SN_NOWARN)
+                    
+                    else:
+
+                        # --------------------------------------------------------------------------------------------------------
+                        # Symbol Entry Structure
+                        members = [('name', 'Name (String Index)', 0x4),
+                                   ('info', 'Info (Binding : Type)', 0x1),
+                                   ('other', 'Other', 0x1),
+                                   ('shtndx', 'Section Index', 0x2),
+                                   ('value', 'Value', 0x8),
+                                   ('size', 'Size', 0x8)]
+                        struct = segm.struct('Symbol', members)
+                        
+                        # Symbol Table
+                        location = Dynamic.SYMTAB64
+                        f.seek(location - base)
+                        symbols = {}
+                        
+                        idc.add_entry(location, location, '.symtab', False)
+                        
+                        for entry in xrange((Dynamic.STRTAB64 - location) / 0x18):
+                            idaapi.create_struct(location + (entry * 0x18), 0x18, struct)
+                            idc.set_cmt(location + (entry * 0x18), Symbol(f).process(symbols), False)
+                            
+                        # --------------------------------------------------------------------------------------------------------
+                        # Dynamic String Table
+                        location = Dynamic.STRTAB64
+                        
+                        idc.add_entry(location, location, '.strtab', False)    
             
             # Fix-up...
-            relro   = idaapi.get_segm_by_name('SCE_RELRO')
-            address = relro.start_ea
-            end     = relro.end_ea
-            
-            del_items(address, DELIT_SIMPLE, end - address)
-            
-            while address < end:
-                create_data(address, FF_QWORD, 0x8, BADNODE)
-                address += 0x8
-            
+            if kASLR:
+                relro   = idaapi.get_segm_by_name('SCE_RELRO')
+                address = relro.start_ea
+                end     = relro.end_ea
+                
+                del_items(address, DELIT_SIMPLE, end - address)
+                
+                while address < end:
+                    create_data(address, FF_QWORD, 0x8, BADNODE)
+                    address += 0x8
+                
             code    = idaapi.get_segm_by_name('CODE')
             address = base = code.start_ea
             end     = code.end_ea
@@ -872,87 +928,82 @@ if __name__ == '__main__':
                     idc.set_cmt(address, comment, False)
                     address += size
             
-            # start
-            idc.add_entry(ps.E_START_ADDR, ps.E_START_ADDR, 'start', True)
-            
-            # .init
-            address = Dynamic.INIT
-            idaapi.do_unknown(address, 0)
-            idaapi.create_insn(address)
-            idaapi.add_func(address, BADADDR)
-            idaapi.set_name(address, '_init', SN_NOCHECK | SN_NOWARN)
-            
-            # Xfast_syscall
-            address = idaapi.find_binary(base, end, '0F 01 F8 65 48 89 24 25 A8 02 00 00 65 48 8B 24', 0x10, SEARCH_DOWN)
-            idaapi.do_unknown(address, 0)
-            idaapi.create_insn(address)
-            idaapi.add_func(address, BADADDR)
-            idaapi.set_name(address, 'Xfast_syscall', SN_NOCHECK | SN_NOWARN)
-            
             # Wait for the AutoAnalyzer to Complete...
             print('# Waiting for the AutoAnalyzer to Complete...')
             idaapi.auto_wait()
             
-            # --------------------------------------------------------------------------------------------------------
-            # Znullptr's syscalls
-            print('# Processing Znullptr\'s Syscalls...')
+            if kASLR:
             
-            # Syscall Entry Structure
-            members = [('narg', 'Number of Arguments', 0x4),
-                       ('_pad', 'Padding', 0x4),
-                       ('function', 'Function', 0x8),
-                       ('auevent', 'Augmented Event?', 0x2),
-                       ('_pad1', 'Padding', 0x2),
-                       ('_pad2', 'Padding', 0x4),
-                       ('trace_args_func', 'Trace Arguments Function', 0x8),
-                       ('entry', 'Entry', 0x4),
-                       ('return', 'Return', 0x4),
-                       ('flags', 'Flags', 0x4),
-                       ('thrcnt', 'Thread Count?', 0x4)]
-            struct = segm.struct('Syscall', members)
+                # start
+                idc.add_entry(ps.E_START_ADDR, ps.E_START_ADDR, 'start', True)
             
-            znullptr(base, end, '4F 52 42 49 53 20 6B 65 72 6E 65 6C 20 53 45 4C 46', struct)
-            
-            # --------------------------------------------------------------------------------------------------------
-            # Pablo's IDC
-            print('# Processing Pablo\'s IDC...')
-            
-            # Script 1) Push it real good...
-            pablo(base, end, 'C5 FA 5A C0 C5 F2 5A C9 C5 EA 5A D2 C5 FB 59 C1')
-            pablo(base, end, 'C5 F9 7E C0 31 C9')
-            pablo(base, end, '48 89 E0 55 53')
-            pablo(base, end, 'B8 2D 00 00 00 C3')
-            pablo(base, end, '31 C0 C3')
-            pablo(base, end, '55 48 89')
-            pablo(base, end, '48 81 EC A0 00 00 00 C7')
-            pablo(base, end, '48 81 EC A8 00 00 00')
-            
-            # Script 2) Fix-up Dumped Data Pointers...
-            if dumped:
-                data = idaapi.get_segm_by_name('DATA').start_ea
-                end  = idaapi.get_segm_by_name('DATA').end_ea
+                # Xfast_syscall
+                address = idaapi.find_binary(base, end, '0F 01 F8 65 48 89 24 25 A8 02 00 00 65 48 8B 24', 0x10, SEARCH_DOWN)
+                idaapi.do_unknown(address, 0)
+                idaapi.create_insn(address)
+                idaapi.add_func(address, BADADDR)
+                idaapi.set_name(address, 'Xfast_syscall', SN_NOCHECK | SN_NOWARN)
                 
-                pablo(data, end, '?? FF FF FF FF')
-            
-            # --------------------------------------------------------------------------------------------------------
-            # Kiwidog's __stack_chk_fail
-            print('# Processing Kiwidog\'s Stack Functions...')
-            
-            kiwidog(base, end, '73 74 61 63 6B 20 6F 76 65 72 66 6C 6F 77 20 64 65 74 65 63 74 65 64 3B')
-            
-            # --------------------------------------------------------------------------------------------------------
-            # Final Pass
-            print('# Performing Final Pass...')
-            address = base
-            while address < code.end_ea:
-                address = idaapi.find_not_func(address, SEARCH_DOWN)
+                # --------------------------------------------------------------------------------------------------------
+                # Znullptr's syscalls
+                print('# Processing Znullptr\'s Syscalls...')
                 
-                if idaapi.isUnknown(idaapi.getFlags(address)):
-                    idaapi.create_insn(address)
-                else:
-                    idc.add_func(address)
+                # Syscall Entry Structure
+                members = [('narg', 'Number of Arguments', 0x4),
+                           ('_pad', 'Padding', 0x4),
+                           ('function', 'Function', 0x8),
+                           ('auevent', 'Augmented Event?', 0x2),
+                           ('_pad1', 'Padding', 0x2),
+                           ('_pad2', 'Padding', 0x4),
+                           ('trace_args_func', 'Trace Arguments Function', 0x8),
+                           ('entry', 'Entry', 0x4),
+                           ('return', 'Return', 0x4),
+                           ('flags', 'Flags', 0x4),
+                           ('thrcnt', 'Thread Count?', 0x4)]
+                struct = segm.struct('Syscall', members)
                 
-                address += 4
+                znullptr(base, end, '4F 52 42 49 53 20 6B 65 72 6E 65 6C 20 53 45 4C 46', struct)
+            
+                # --------------------------------------------------------------------------------------------------------
+                # Pablo's IDC
+                print('# Processing Pablo\'s IDC...')
+                
+                # Script 1) Push it real good...
+                pablo(base, end, 'C5 FA 5A C0 C5 F2 5A C9 C5 EA 5A D2 C5 FB 59 C1')
+                pablo(base, end, 'C5 F9 7E C0 31 C9')
+                pablo(base, end, '48 89 E0 55 53')
+                pablo(base, end, 'B8 2D 00 00 00 C3')
+                pablo(base, end, '31 C0 C3')
+                pablo(base, end, '55 48 89')
+                pablo(base, end, '48 81 EC A0 00 00 00 C7')
+                pablo(base, end, '48 81 EC A8 00 00 00')
+                
+                # Script 2) Fix-up Dumped Data Pointers...
+                if dumped:
+                    data = idaapi.get_segm_by_name('DATA').start_ea
+                    end  = idaapi.get_segm_by_name('DATA').end_ea
+                    
+                    pablo(data, end, '?? FF FF FF FF')
+                
+                # --------------------------------------------------------------------------------------------------------
+                # Kiwidog's __stack_chk_fail
+                print('# Processing Kiwidog\'s Stack Functions...')
+                
+                kiwidog(base, end, '73 74 61 63 6B 20 6F 76 65 72 66 6C 6F 77 20 64 65 74 65 63 74 65 64 3B')
+                
+                # --------------------------------------------------------------------------------------------------------
+                # Final Pass
+                print('# Performing Final Pass...')
+                address = base
+                while address < code.end_ea:
+                    address = idaapi.find_not_func(address, SEARCH_DOWN)
+                    
+                    if idaapi.isUnknown(idaapi.getFlags(address)):
+                        idaapi.create_insn(address)
+                    else:
+                        idc.add_func(address)
+                    
+                    address += 4
             
             print('# Done!')
             return 1
