@@ -622,16 +622,19 @@ class Symbol:
             Symbol.ST_WEAK_TLS        : 'Weak : TLS',
         }.get(self.INFO, 'Missing Symbol Information!!!')
     
-    def process(self, symbols):
+    def process(self, functions):
         if self.NAME != 0:
-            symbols[self.NAME] = 0        
+            functions[self.NAME] = 0        
 
         if 'Function' in self.info():
             idaapi.add_func(self.VALUE, BADADDR)
 
         return '%#x | %s | %#x | %#x | %#x | %#x' % \
                (self.NAME, self.info(), self.OTHER, self.INDEX, self.VALUE, self.SIZE)
-
+               
+    def resolve(self, function):
+        if 'Function' in self.info() and self.VALUE > 0:
+            idc.set_name(self.VALUE, function, SN_NOCHECK | SN_NOWARN)
 
 # PROGRAM START
 if __name__ == '__main__':
@@ -853,19 +856,35 @@ if __name__ == '__main__':
                         # Symbol Table
                         location = Dynamic.SYMTAB
                         f.seek(location - base)
-                        symbols = {}
+                        functions = {}
                         
                         idc.add_entry(location, location, '.symtab', False)
                         
                         for entry in xrange((Dynamic.STRTAB - location) / 0x18):
                             idaapi.create_struct(location + (entry * 0x18), 0x18, struct)
-                            idc.set_cmt(location + (entry * 0x18), Symbol(f).process(symbols), False)
+                            idc.set_cmt(location + (entry * 0x18), Symbol(f).process(functions), False)
                             
                         # --------------------------------------------------------------------------------------------------------
                         # Dynamic String Table
                         location = Dynamic.STRTAB
                         
-                        idc.add_entry(location, location, '.strtab', False)    
+                        idc.add_entry(location, location, '.strtab', False)
+
+                        # Functions
+                        for key in functions:
+                            idc.create_strlit(location + key, BADADDR)
+                            functions[key] = idc.get_strlit_contents(location + key, BADADDR)
+                            idc.set_cmt(location + key, 'Function', False)
+                            
+                        functions = sorted(functions.iteritems(), key = operator.itemgetter(0))
+                        #print('Functions: %s' % functions)
+                        
+                        # Resolve Functions
+                        location = Dynamic.SYMTAB
+                        f.seek(location - base + 0x18)
+                        
+                        for entry in xrange((Dynamic.STRTAB - location - 0x18) / 0x18):
+                            Symbol(f).resolve(functions[entry][1])
             
             # Fix-up...
             if kASLR:
