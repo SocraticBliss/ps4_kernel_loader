@@ -413,15 +413,15 @@ class Dynamic:
         if self.TAG == Dynamic.DT_NEEDED:
             stubs[self.VALUE] = 0
         elif self.TAG == Dynamic.DT_PLTGOT:
-            Dynamic.GOT64 = self.VALUE
+            Dynamic.PLTGOT = self.VALUE
         elif self.TAG == Dynamic.DT_HASH:
-            Dynamic.HASHTAB64 = self.VALUE            
+            Dynamic.HASH = self.VALUE            
         elif self.TAG == Dynamic.DT_STRTAB:
-            Dynamic.STRTAB64 = self.VALUE
+            Dynamic.STRTAB = self.VALUE
         elif self.TAG == Dynamic.DT_SYMTAB:
-            Dynamic.SYMTAB64 = self.VALUE            
+            Dynamic.SYMTAB = self.VALUE            
         elif self.TAG == Dynamic.DT_STRSZ:
-            Dynamic.STRSZ64 = self.VALUE 
+            Dynamic.STRSZ = self.VALUE 
         elif self.TAG == Dynamic.DT_INIT:
             Dynamic.INIT = self.VALUE
         elif self.TAG == Dynamic.DT_FINI:
@@ -429,13 +429,13 @@ class Dynamic:
         elif self.TAG == Dynamic.DT_SONAME:
             stubs[self.VALUE] = 0
         elif self.TAG == Dynamic.DT_SCE_STRTAB:
-            Dynamic.STRTAB = self.VALUE
+            Dynamic.DYNSTR = self.VALUE
         elif self.TAG == Dynamic.DT_SCE_STRSZ:
-            Dynamic.STRTABSZ = self.VALUE
+            Dynamic.DYNSTRSZ = self.VALUE
         elif self.TAG == Dynamic.DT_SCE_SYMTAB:
-            Dynamic.SYMTAB = self.VALUE
+            Dynamic.DYNSYM = self.VALUE
         elif self.TAG == Dynamic.DT_SCE_SYMTABSZ:
-            Dynamic.SYMTABSZ = self.VALUE
+            Dynamic.DYNSYMSZ = self.VALUE
         elif self.TAG == Dynamic.DT_SCE_JMPREL:
             Dynamic.JMPTAB = self.VALUE
         elif self.TAG == Dynamic.DT_SCE_PLTRELSZ:
@@ -626,6 +626,9 @@ class Symbol:
         if self.NAME != 0:
             symbols[self.NAME] = 0        
 
+        if 'Function' in self.info():
+            idaapi.add_func(self.VALUE, BADADDR)
+
         return '%#x | %s | %#x | %#x | %#x | %#x' % \
                (self.NAME, self.info(), self.OTHER, self.INDEX, self.VALUE, self.SIZE)
 
@@ -804,8 +807,8 @@ if __name__ == '__main__':
                         size = Dynamic.HASHTABSZ
                     
                     except:
-                        location = Dynamic.HASHTAB64
-                        size = Dynamic.SYMTAB64 - location
+                        location = Dynamic.HASH
+                        size = Dynamic.SYMTAB - location
                     
                     f.seek(location - base)
                     for entry in xrange(size / 0x8):
@@ -848,19 +851,19 @@ if __name__ == '__main__':
                         struct = segm.struct('Symbol', members)
                         
                         # Symbol Table
-                        location = Dynamic.SYMTAB64
+                        location = Dynamic.SYMTAB
                         f.seek(location - base)
                         symbols = {}
                         
                         idc.add_entry(location, location, '.symtab', False)
                         
-                        for entry in xrange((Dynamic.STRTAB64 - location) / 0x18):
+                        for entry in xrange((Dynamic.STRTAB - location) / 0x18):
                             idaapi.create_struct(location + (entry * 0x18), 0x18, struct)
                             idc.set_cmt(location + (entry * 0x18), Symbol(f).process(symbols), False)
                             
                         # --------------------------------------------------------------------------------------------------------
                         # Dynamic String Table
-                        location = Dynamic.STRTAB64
+                        location = Dynamic.STRTAB
                         
                         idc.add_entry(location, location, '.strtab', False)    
             
@@ -964,46 +967,47 @@ if __name__ == '__main__':
                 
                 znullptr(base, end, '4F 52 42 49 53 20 6B 65 72 6E 65 6C 20 53 45 4C 46', struct)
             
-                # --------------------------------------------------------------------------------------------------------
-                # Pablo's IDC
-                print('# Processing Pablo\'s IDC...')
+            # --------------------------------------------------------------------------------------------------------
+            # Pablo's IDC
+            print('# Processing Pablo\'s IDC...')
+            
+            # Script 1) Push it real good...
+            pablo(base, end, 'C5 FA 5A C0 C5 F2 5A C9 C5 EA 5A D2 C5 FB 59 C1')
+            pablo(base, end, 'C5 F9 7E C0 31 C9')
+            pablo(base, end, '48 89 E0 55 53')
+            pablo(base, end, 'B8 2D 00 00 00 C3')
+            pablo(base, end, '31 C0 C3')
+            pablo(base, end, '55 48 89')
+            pablo(base, end, '48 81 EC A0 00 00 00 C7')
+            pablo(base, end, '48 81 EC A8 00 00 00')
+            
+            # Script 2) Fix-up Dumped Data Pointers...
+            if dumped:
+                data = idaapi.get_segm_by_name('DATA').start_ea
+                end  = idaapi.get_segm_by_name('DATA').end_ea
                 
-                # Script 1) Push it real good...
-                pablo(base, end, 'C5 FA 5A C0 C5 F2 5A C9 C5 EA 5A D2 C5 FB 59 C1')
-                pablo(base, end, 'C5 F9 7E C0 31 C9')
-                pablo(base, end, '48 89 E0 55 53')
-                pablo(base, end, 'B8 2D 00 00 00 C3')
-                pablo(base, end, '31 C0 C3')
-                pablo(base, end, '55 48 89')
-                pablo(base, end, '48 81 EC A0 00 00 00 C7')
-                pablo(base, end, '48 81 EC A8 00 00 00')
-                
-                # Script 2) Fix-up Dumped Data Pointers...
-                if dumped:
-                    data = idaapi.get_segm_by_name('DATA').start_ea
-                    end  = idaapi.get_segm_by_name('DATA').end_ea
-                    
-                    pablo(data, end, '?? FF FF FF FF')
-                
+                pablo(data, end, '?? FF FF FF FF')
+            
+            if kASLR:
                 # --------------------------------------------------------------------------------------------------------
                 # Kiwidog's __stack_chk_fail
                 print('# Processing Kiwidog\'s Stack Functions...')
                 
                 kiwidog(base, end, '73 74 61 63 6B 20 6F 76 65 72 66 6C 6F 77 20 64 65 74 65 63 74 65 64 3B')
                 
-                # --------------------------------------------------------------------------------------------------------
-                # Final Pass
-                print('# Performing Final Pass...')
-                address = base
-                while address < code.end_ea:
-                    address = idaapi.find_not_func(address, SEARCH_DOWN)
-                    
-                    if idaapi.isUnknown(idaapi.getFlags(address)):
-                        idaapi.create_insn(address)
-                    else:
-                        idc.add_func(address)
-                    
-                    address += 4
+            # --------------------------------------------------------------------------------------------------------
+            # Final Pass
+            print('# Performing Final Pass...')
+            address = base
+            while address < code.end_ea:
+                address = idaapi.find_not_func(address, SEARCH_DOWN)
+                
+                if idaapi.isUnknown(idaapi.getFlags(address)):
+                    idaapi.create_insn(address)
+                else:
+                    idc.add_func(address)
+                
+                address += 4
             
             print('# Done!')
             return 1
