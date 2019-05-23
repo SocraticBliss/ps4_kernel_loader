@@ -999,9 +999,9 @@ if __name__ == '__main__':
             pablo(base, end, '55 48 89')
             pablo(base, end, '48 81 EC A0 00 00 00 C7')
             pablo(base, end, '48 81 EC A8 00 00 00')
-            
+ 
             # Script 2) Fix-up Dumped Data Pointers...
-            if dumped:
+            if dumped or not kASLR:
                 data = idaapi.get_segm_by_name('DATA').start_ea
                 end  = idaapi.get_segm_by_name('DATA').end_ea
                 
