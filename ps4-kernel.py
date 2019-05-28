@@ -219,7 +219,7 @@ class Segment:
         for (member, comment, size) in members:
             flags = idaapi.get_flags_by_size(size)
             
-            if member == 'function':
+            if member in ['function', 'offset']:
                 idc.add_struc_member(entry, member, location, flags + FF_0OFF, BADADDR, size, BADADDR, 0, REF_OFF64)
             else:
                 idc.add_struc_member(entry, member, location, flags, BADADDR, size)
@@ -408,35 +408,42 @@ class Dynamic:
         }.get(self.INDEX, 'Missing Module Attribute!!!')
     
     def process(self, dumped, stubs, modules):
-        self.VALUE += dumped
-        
         if self.TAG == Dynamic.DT_NEEDED:
             stubs[self.VALUE] = 0
         elif self.TAG == Dynamic.DT_PLTGOT:
+            self.VALUE += dumped
             Dynamic.PLTGOT = self.VALUE
         elif self.TAG == Dynamic.DT_HASH:
+            self.VALUE += dumped
             Dynamic.HASH = self.VALUE            
         elif self.TAG == Dynamic.DT_STRTAB:
+            self.VALUE += dumped
             Dynamic.STRTAB = self.VALUE
         elif self.TAG == Dynamic.DT_SYMTAB:
+            self.VALUE += dumped
             Dynamic.SYMTAB = self.VALUE            
         elif self.TAG == Dynamic.DT_STRSZ:
             Dynamic.STRSZ = self.VALUE 
         elif self.TAG == Dynamic.DT_INIT:
+            self.VALUE += dumped
             Dynamic.INIT = self.VALUE
         elif self.TAG == Dynamic.DT_FINI:
+            self.VALUE += dumped
             Dynamic.FINI = self.VALUE
         elif self.TAG == Dynamic.DT_SONAME:
             stubs[self.VALUE] = 0
         elif self.TAG == Dynamic.DT_SCE_STRTAB:
+            self.VALUE += dumped
             Dynamic.DYNSTR = self.VALUE
         elif self.TAG == Dynamic.DT_SCE_STRSZ:
             Dynamic.DYNSTRSZ = self.VALUE
         elif self.TAG == Dynamic.DT_SCE_SYMTAB:
+            self.VALUE += dumped
             Dynamic.DYNSYM = self.VALUE
         elif self.TAG == Dynamic.DT_SCE_SYMTABSZ:
             Dynamic.DYNSYMSZ = self.VALUE
         elif self.TAG == Dynamic.DT_SCE_JMPREL:
+            self.VALUE += dumped
             Dynamic.JMPTAB = self.VALUE
         elif self.TAG == Dynamic.DT_SCE_PLTRELSZ:
             Dynamic.JMPTABSZ = self.VALUE
@@ -444,14 +451,17 @@ class Dynamic:
             if self.VALUE == 0x7:
                 return '%s | %#x | DT_RELA' % (self.tag(), self.VALUE)
         elif self.TAG == Dynamic.DT_SCE_RELA:
+            self.VALUE += dumped
             Dynamic.RELATAB = self.VALUE
         elif self.TAG == Dynamic.DT_SCE_RELASZ:
             Dynamic.RELATABSZ = self.VALUE
         elif self.TAG == Dynamic.DT_SCE_HASH:
+            self.VALUE += dumped
             Dynamic.HASHTAB = self.VALUE
         elif self.TAG == Dynamic.DT_SCE_HASHSZ:
             Dynamic.HASHTABSZ = self.VALUE
         elif self.TAG == Dynamic.DT_SCE_PLTGOT:
+            self.VALUE += dumped
             Dynamic.GOT = self.VALUE
         elif self.TAG in [Dynamic.DT_SCE_NEEDED_MODULE, Dynamic.DT_SCE_IMPORT_LIB,
                           Dynamic.DT_SCE_IMPORT_LIB_ATTR, Dynamic.DT_SCE_EXPORT_LIB,
@@ -629,8 +639,7 @@ class Symbol:
         if 'Function' in self.info():
             idaapi.add_func(self.VALUE, BADADDR)
 
-        return '%#x | %s | %#x | %#x | %#x | %#x' % \
-               (self.NAME, self.info(), self.OTHER, self.INDEX, self.VALUE, self.SIZE)
+        return '%s' % self.info()
                
     def resolve(self, function):
         if 'Function' in self.info() and self.VALUE > 0:
@@ -667,7 +676,7 @@ if __name__ == '__main__':
             while address < end:
                 address = idaapi.find_binary(address, end, search, 0x10, SEARCH_DOWN)
                 
-                if address > idaapi.get_segm_by_name('DATA').start_ea:
+                if address > idaapi.get_segm_by_name('CODE').end_ea:
                     offset = address - 0x3
                     
                     if idaapi.isUnknown(idaapi.getFlags(offset)):
@@ -849,7 +858,7 @@ if __name__ == '__main__':
                                    ('info', 'Info (Binding : Type)', 0x1),
                                    ('other', 'Other', 0x1),
                                    ('shtndx', 'Section Index', 0x2),
-                                   ('value', 'Value', 0x8),
+                                   ('offset', 'Value', 0x8),
                                    ('size', 'Size', 0x8)]
                         struct = segm.struct('Symbol', members)
                         
@@ -986,26 +995,30 @@ if __name__ == '__main__':
                 
                 znullptr(base, end, '4F 52 42 49 53 20 6B 65 72 6E 65 6C 20 53 45 4C 46', struct)
             
-            # --------------------------------------------------------------------------------------------------------
-            # Pablo's IDC
-            print('# Processing Pablo\'s IDC...')
-            
-            # Script 1) Push it real good...
-            pablo(base, end, 'C5 FA 5A C0 C5 F2 5A C9 C5 EA 5A D2 C5 FB 59 C1')
-            pablo(base, end, 'C5 F9 7E C0 31 C9')
-            pablo(base, end, '48 89 E0 55 53')
-            pablo(base, end, 'B8 2D 00 00 00 C3')
-            pablo(base, end, '31 C0 C3')
-            pablo(base, end, '55 48 89')
-            pablo(base, end, '48 81 EC A0 00 00 00 C7')
-            pablo(base, end, '48 81 EC A8 00 00 00')
- 
-            # Script 2) Fix-up Dumped Data Pointers...
-            if dumped or not kASLR:
-                data = idaapi.get_segm_by_name('DATA').start_ea
-                end  = idaapi.get_segm_by_name('DATA').end_ea
+            try:
+                # --------------------------------------------------------------------------------------------------------
+                # Pablo's IDC
+                print('# Processing Pablo\'s IDC...')
                 
-                pablo(data, end, '?? FF FF FF FF')
+                # Script 1) Push it real good...
+                pablo(base, end, 'C5 FA 5A C0 C5 F2 5A C9 C5 EA 5A D2 C5 FB 59 C1')
+                pablo(base, end, 'C5 F9 7E C0 31 C9')
+                pablo(base, end, '48 89 E0 55 53')
+                pablo(base, end, 'B8 2D 00 00 00 C3')
+                pablo(base, end, '31 C0 C3')
+                pablo(base, end, '55 48 89')
+                pablo(base, end, '48 81 EC A0 00 00 00 C7')
+                pablo(base, end, '48 81 EC A8 00 00 00')
+    
+                # Script 2) Fix-up Dumped Data Pointers...
+                if dumped or not kASLR:
+                    data = idaapi.get_segm_by_name('DATA').start_ea
+                    end  = idaapi.get_segm_by_name('DATA').end_ea
+                    
+                    pablo(data, end, '?? FF FF FF FF')
+            
+            except:
+                pass
             
             if kASLR:
                 # --------------------------------------------------------------------------------------------------------
