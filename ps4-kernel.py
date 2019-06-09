@@ -1017,7 +1017,7 @@ if __name__ == '__main__':
                 # Kiwidog's __stack_chk_fail
                 print('# Processing Kiwidog\'s Stack Functions...')
                 
-                kiwidog(code.start_ea, code.start_ea, '73 74 61 63 6B 20 6F 76 65 72 66 6C 6F 77 20 64 65 74 65 63 74 65 64 3B')
+                kiwidog(code.start_ea, code.end_ea, '73 74 61 63 6B 20 6F 76 65 72 66 6C 6F 77 20 64 65 74 65 63 74 65 64 3B')
                 
             # --------------------------------------------------------------------------------------------------------
             # Final Pass
