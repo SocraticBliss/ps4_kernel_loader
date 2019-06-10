@@ -223,7 +223,7 @@ class Segment:
         for (member, comment, size) in members:
             flags = idaapi.get_flags_by_size(size)
             
-            if member in ['function', 'offset']:
+            if member in ['function', 'offset', 'd_name']:
                 idc.add_struc_member(entry, member, location, flags + FF_0OFF, BADADDR, size, BADADDR, 0, REF_OFF64)
             else:
                 idc.add_struc_member(entry, member, location, flags, BADADDR, size)
@@ -419,13 +419,13 @@ class Dynamic:
             Dynamic.PLTGOT = self.VALUE
         elif self.TAG == Dynamic.DT_HASH:
             self.VALUE += dumped
-            Dynamic.HASH = self.VALUE            
+            Dynamic.HASH = self.VALUE
         elif self.TAG == Dynamic.DT_STRTAB:
             self.VALUE += dumped
             Dynamic.STRTAB = self.VALUE
         elif self.TAG == Dynamic.DT_SYMTAB:
             self.VALUE += dumped
-            Dynamic.SYMTAB = self.VALUE            
+            Dynamic.SYMTAB = self.VALUE
         elif self.TAG == Dynamic.DT_STRSZ:
             Dynamic.STRSZ = self.VALUE 
         elif self.TAG == Dynamic.DT_INIT:
@@ -640,13 +640,13 @@ class Symbol:
     
     def process(self, functions):
         if self.NAME != 0:
-            functions[self.NAME] = 0        
-
+            functions[self.NAME] = 0
+        
         if 'Function' in self.info():
             idaapi.add_func(self.VALUE, BADADDR)
-
+        
         return '%s' % self.info()
-               
+    
     def resolve(self, function):
         if 'Function' in self.info() and self.VALUE > 0:
             idc.set_name(self.VALUE, function, SN_NOCHECK | SN_NOWARN)
@@ -656,6 +656,15 @@ if __name__ == '__main__':
     try:
         from idaapi import *
         from idc import *
+        
+        # Chendo's cdevsw con-struct-or
+        def chendo(address, end, search, struct):
+            
+            while address < end:
+                address = idaapi.find_binary(address, end, search, 0x10, SEARCH_DOWN)
+                idaapi.do_unknown_range(address, 0xB0, 0)
+                idaapi.create_struct(address, 0xB0, struct)
+                address += 0x8
         
         # Kiwidog's __stack_chk_fail
         def kiwidog(address, end, search):
@@ -802,7 +811,7 @@ if __name__ == '__main__':
                     for entry in xrange(segm.MEM_SIZE / 0x10):
                         idaapi.create_struct(location + (entry * 0x10), 0x10, struct)
                         idc.set_cmt(location + (entry * 0x10), Dynamic(f).process(dumped, stubs, modules), False)
-
+                    
                     # --------------------------------------------------------------------------------------------------------
                     # Hash Entry Structure
                     members = [('bucket', 'Bucket', 0x2),
@@ -840,7 +849,7 @@ if __name__ == '__main__':
                         for entry in xrange(Dynamic.RELATABSZ / 0x18):
                             idaapi.create_struct(location + (entry * 0x18), 0x18, struct)
                             idc.set_cmt(location + (entry * 0x18), Relocation(f).process(dumped, code.end_ea), False)
-
+                        
                         # .init
                         address = Dynamic.INIT
                         idaapi.do_unknown(address, 0)
@@ -849,7 +858,7 @@ if __name__ == '__main__':
                         idaapi.set_name(address, '.init', SN_NOCHECK | SN_NOWARN)
                     
                     else:
-
+                        
                         # --------------------------------------------------------------------------------------------------------
                         # Symbol Entry Structure
                         members = [('name', 'Name (String Index)', 0x4),
@@ -876,7 +885,7 @@ if __name__ == '__main__':
                         location = Dynamic.STRTAB
                         
                         idc.add_entry(location, location, '.strtab', False)
-
+                        
                         # Functions
                         for key in functions:
                             idc.create_strlit(location + key, BADADDR)
@@ -989,6 +998,39 @@ if __name__ == '__main__':
                 
                 znullptr(code.start_ea, code.end_ea, '4F 52 42 49 53 20 6B 65 72 6E 65 6C 20 53 45 4C 46', struct)
             
+                # --------------------------------------------------------------------------------------------------------
+                # Chendo's cdevsw con-struct-or
+                print('# Processing Chendo\'s cdevsw structs...')
+                
+                # cdevsw Entry Structure
+                members = [('d_version', 'Version', 0x4),
+                           ('d_flags', 'Flags', 0x4),
+                           ('d_name', 'Name', 0x8),
+                           ('d_open', 'Open', 0x8),
+                           ('d_fdopen', 'File Descriptor Open', 0x8),
+                           ('d_close', 'Close', 0x8),
+                           ('d_read', 'Read', 0x8),
+                           ('d_write', 'Write', 0x8),
+                           ('d_ioctl', 'Input/Ouput Control', 0x8),
+                           ('d_poll', 'Poll', 0x8),
+                           ('d_mmap', 'Memory Mapping', 0x8),
+                           ('d_strategy', 'Strategy', 0x8),
+                           ('d_dump', 'Dump', 0x8),
+                           ('d_kqfilter', 'KQFilter', 0x8),
+                           ('d_purge', 'Purge', 0x8),
+                           ('d_mmap_single', 'Single Memory Mapping', 0x8),
+                           ('d_spare0', 'Spare0', 0x8),
+                           ('d_spare1', 'Spare1', 0x8),
+                           ('d_spare2', 'Spare2', 0x8),
+                           ('d_spare3', 'Spare3', 0x8),
+                           ('d_spare4', 'Spare4', 0x8),
+                           ('d_spare5', 'Spare5', 0x8),
+                           ('d_spare6', 'Spare6', 0x4),
+                           ('d_spare7', 'Spare7', 0x4)]
+                struct = segm.struct('cdevsw', members)
+                
+                chendo(data.start_ea, data.end_ea, '09 20 12 17', struct)
+            
             try:
                 # --------------------------------------------------------------------------------------------------------
                 # Pablo's IDC
@@ -1003,7 +1045,7 @@ if __name__ == '__main__':
                 pablo(code.start_ea, code.end_ea, '55 48 89')
                 pablo(code.start_ea, code.end_ea, '48 81 EC A0 00 00 00 C7')
                 pablo(code.start_ea, code.end_ea, '48 81 EC A8 00 00 00')
-    
+                
                 # Script 2) Fix-up Dumped Data Pointers...
                 if dumped or not kASLR:
                     print('# Processing Pablo\'s Dumped Data Pointers IDC...')
@@ -1018,7 +1060,7 @@ if __name__ == '__main__':
                 print('# Processing Kiwidog\'s Stack Functions...')
                 
                 kiwidog(code.start_ea, code.end_ea, '73 74 61 63 6B 20 6F 76 65 72 66 6C 6F 77 20 64 65 74 65 63 74 65 64 3B')
-                
+    
             # --------------------------------------------------------------------------------------------------------
             # Final Pass
             print('# Performing Final Pass...')
