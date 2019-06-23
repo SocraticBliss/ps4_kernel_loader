@@ -124,7 +124,7 @@ class Binary:
         return self.EI_CLASS
 
 class Segment:
-    __slots__ = ('TYPE', 'FLAGS', 'OFFSET', 'MEM_ADDR', 
+    __slots__ = ('TYPE', 'FLAGS', 'OFFSET', 'MEM_ADDR',
                  'FILE_ADDR', 'FILE_SIZE', 'MEM_SIZE', 'ALIGNMENT')
     
     # Segment Types
@@ -159,7 +159,7 @@ class Segment:
     AL_PARA                = 0x10
     AL_4K                  = 0x4000
     
-    def __init__(self, f):     
+    def __init__(self, f):
         self.TYPE         = struct.unpack('<I', f.read(4))[0]
         
         if Binary.FMT == '<I':
@@ -186,7 +186,7 @@ class Segment:
             Segment.AL_WORD            : saRelWord,
             Segment.AL_DWORD           : saRelDble,
             Segment.AL_QWORD           : saRelQword,
-            Segment.AL_PARA            : saRelPara, 
+            Segment.AL_PARA            : saRelPara,
             Segment.AL_4K              : saRel4K,
         }.get(self.ALIGNMENT, saRel_MAX_ALIGN_CODE)
     
@@ -427,7 +427,7 @@ class Dynamic:
             self.VALUE += dumped
             Dynamic.SYMTAB = self.VALUE
         elif self.TAG == Dynamic.DT_STRSZ:
-            Dynamic.STRSZ = self.VALUE 
+            Dynamic.STRSZ = self.VALUE
         elif self.TAG == Dynamic.DT_INIT:
             self.VALUE += dumped
             Dynamic.INIT = self.VALUE
@@ -507,7 +507,7 @@ class Relocation:
     R_X86_64_ORBIS_GOTPCREL_LOAD = 0x28
     
     def __init__(self, f):
-        self.OFFSET = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0] 
+        self.OFFSET = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
         self.INFO   = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
         self.ADDEND = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
     
@@ -652,453 +652,452 @@ class Symbol:
             idc.set_name(self.VALUE, function, SN_NOCHECK | SN_NOWARN)
 
 # PROGRAM START
-if __name__ == '__main__':
-    try:
-        from idaapi import *
-        from idc import *
+try:
+    from idaapi import *
+    from idc import *
+    
+    # Chendo's cdevsw con-struct-or
+    def chendo(address, end, search, struct):
         
-        # Chendo's cdevsw con-struct-or
-        def chendo(address, end, search, struct):
-            
-            while address < end:
-                address = idaapi.find_binary(address, end, search, 0x10, SEARCH_DOWN)
-                idaapi.do_unknown_range(address, 0xB0, 0)
-                idaapi.create_struct(address, 0xB0, struct)
-                address += 0x8
+        while address < end:
+            address = idaapi.find_binary(address, end, search, 0x10, SEARCH_DOWN)
+            idaapi.do_unknown_range(address, 0xB0, 0)
+            idaapi.create_struct(address, 0xB0, struct)
+            address += 0x8
+    
+    # Kiwidog's __stack_chk_fail
+    def kiwidog(address, end, search):
         
-        # Kiwidog's __stack_chk_fail
-        def kiwidog(address, end, search):
-            
-            magic = idaapi.find_binary(address, end, search, 0x0, SEARCH_DOWN)
-            function = idaapi.get_func(idaapi.get_first_dref_to(magic))
-            idaapi.set_name(function.start_ea, '__stack_chk_fail', SN_NOCHECK | SN_NOWARN)
-            function.flags |= FUNC_NORET
-            idaapi.update_func(function)
+        magic = idaapi.find_binary(address, end, search, 0x0, SEARCH_DOWN)
+        function = idaapi.get_func(idaapi.get_first_dref_to(magic))
+        idaapi.set_name(function.start_ea, '__stack_chk_fail', SN_NOCHECK | SN_NOWARN)
+        function.flags |= FUNC_NORET
+        idaapi.update_func(function)
+    
+    # Pablo's IDC
+    def pablo(address, end, search):
         
-        # Pablo's IDC
-        def pablo(address, end, search):
+        while address < end:
+            address = idaapi.find_binary(address, end, search, 0x10, SEARCH_DOWN)
             
-            while address < end:
-                address = idaapi.find_binary(address, end, search, 0x10, SEARCH_DOWN)
+            if address > idaapi.get_segm_by_name('CODE').end_ea:
+                offset = address - 0x3
                 
-                if address > idaapi.get_segm_by_name('CODE').end_ea:
-                    offset = address - 0x3
-                    
-                    if idaapi.isUnknown(idaapi.getFlags(offset)):
-                        if idaapi.get_qword(offset) <= end:
-                            idaapi.create_data(offset, FF_QWORD, 0x8, BADNODE)
-                    
-                    address = offset + 4
+                if idaapi.isUnknown(idaapi.getFlags(offset)):
+                    if idaapi.get_qword(offset) <= end:
+                        idaapi.create_data(offset, FF_QWORD, 0x8, BADNODE)
                 
-                else:
-                    idaapi.do_unknown(address, 0)
-                    idaapi.create_insn(address)
-                    idaapi.add_func(address, BADADDR)
-                    address += 4
-        
-        # Znullptr's Syscalls
-        def znullptr(address, end, search, struct):
+                address = offset + 4
             
-            magic = idaapi.find_binary(address, end, search, 0x10, idc.SEARCH_DOWN)
-            pattern = '%02X %02X %02X %02X FF FF FF FF' % (magic & 0xFF, ((magic >> 0x8) & 0xFF), ((magic >> 0x10) & 0xFF), ((magic >> 0x18) & 0xFF))
-            
-            sysvec = idaapi.find_binary(address, cvar.inf.maxEA, pattern, 0x10, idc.SEARCH_UP) - 0x60
-            idaapi.set_name(sysvec, 'sysentvec', SN_NOCHECK | SN_NOWARN)
-            
-            sysent = idaapi.get_qword(sysvec + 0x8)
-            idaapi.set_name(sysent, 'sv_table', SN_NOCHECK | SN_NOWARN)
-            
-            sysnames = idaapi.get_qword(sysvec + 0xD0)
-            idaapi.set_name(sysnames, 'sv_syscallnames', SN_NOCHECK | SN_NOWARN)
-            
-            # Get the list of syscalls
-            offset = idaapi.find_binary(address, cvar.inf.maxEA, '73 79 73 63 61 6C 6C 00 65 78 69 74 00', 0x10, SEARCH_DOWN)
-            
-            numsyscalls = idaapi.get_qword(sysvec)
-            
-            for entry in xrange(numsyscalls):
-                initial = sysnames + (entry * 0x8)
-                idc.create_data(initial, FF_QWORD, 0x8, BADNODE)
-                offset = idaapi.get_qword(initial)
-                
-                length = idaapi.get_max_strlit_length(offset, STRTYPE_C)
-                name = idaapi.get_strlit_contents(offset, length, STRTYPE_C)
-                
-                sysentoffset = sysent + 0x8 + (entry * 0x30)
-                idaapi.do_unknown_range(sysentoffset - 0x8, 0x30, 0)
-                idaapi.create_struct(sysentoffset - 0x8, 0x30, struct)
-                idc.set_cmt(sysentoffset - 0x8, '#%i' % entry, False)
-                
-                if '{' in name:
-                    continue
-                
-                # Rename the functions
-                function = idaapi.get_qword(sysentoffset)
-                idaapi.set_name(function, name.replace('#', 'sys_'), SN_NOCHECK | SN_NOWARN)
-        
-        # Open File Dialog...
-        def accept_file(f, n):
-            try:
-                if not isinstance(n, (int, long)) or n == 0:
-                    return 'PS4 - Kernel' if f.read(4) == '\x7FELF' and Binary(f).E_TYPE == Binary(f).ET_EXEC else 0
-            except:
-                pass
-        
-        # Load Input Binary...
-        def load_file(f, neflags, format):
-            
-            print('# PS4 Kernel Loader')
-            ps = Binary(f)
-            
-            # PS4 Processor, Compiler, Library
-            bitness = ps.procomp('metapc', CM_N64 | CM_M_NN | CM_CC_FASTCALL, 'gnulnx_x64')
-            
-            # Segment Loading...
-            for segm in ps.E_SEGMENTS:
-                if segm.name() == 'PHDR':
-                
-                    kASLR = False if segm.FILE_SIZE == 0x118 else True
-                
-                # Process Loadable Segments...
-                if segm.name() in ['CODE', 'DATA', 'SCE_RELRO']:
-                    
-                    address = segm.MEM_ADDR
-                    size = segm.MEM_SIZE
-                    
-                    # Dumped Kernel Fix-ups
-                    if segm.name() in ['DATA', 'SCE_RELRO'] and (idaapi.get_segm_by_name('CODE').start_ea != 0xFFFFFFFF82200000 or not kASLR):
-                        offset = address - idaapi.get_segm_by_name('CODE').start_ea
-                        dumped = segm.MEM_SIZE
-                    else:
-                        offset = segm.OFFSET
-                        dumped = segm.FILE_SIZE
-                    
-                    print('# Creating %s Segment...' % segm.name())
-                    f.file2base(offset, address, address + dumped, FILEREG_PATCHABLE)
-                    
-                    idaapi.add_segm(0, address, address + size, segm.name(), segm.type(), ADDSEG_NOTRUNC | ADDSEG_FILLGAP)
-                    
-                    # Processor Specific Segment Details
-                    idc.set_segm_addressing(address, bitness)
-                    idc.set_segm_alignment(address, segm.alignment())
-                    idc.set_segm_attr(address, SEGATTR_PERM, segm.flags())
-                
-                # Process Dynamic Segment...
-                elif segm.name() == 'DYNAMIC':
-                    
-                    code = idaapi.get_segm_by_name('CODE')
-                    data = idaapi.get_segm_by_name('DATA')
-                    relro = idaapi.get_segm_by_name('SCE_RELRO')
-                    
-                    # --------------------------------------------------------------------------------------------------------
-                    # Dynamic Tag Entry Structure
-                    members = [('tag', 'Tag', 0x8),
-                               ('value', 'Value', 0x8)]
-                    struct = segm.struct('Tag', members)
-                    
-                    # Dynamic Tag Table
-                    stubs = {}
-                    modules = {}
-                    location = segm.MEM_ADDR
-                    
-                    # Dumps are offset by a small amount
-                    if code.start_ea != 0xFFFFFFFF82200000:
-                        dumped = code.start_ea - 0xFFFFFFFF82200000
-                    else:
-                        dumped = 0
-                    
-                    f.seek(location - code.start_ea)
-                    for entry in xrange(segm.MEM_SIZE / 0x10):
-                        idaapi.create_struct(location + (entry * 0x10), 0x10, struct)
-                        idc.set_cmt(location + (entry * 0x10), Dynamic(f).process(dumped, stubs, modules), False)
-                    
-                    # --------------------------------------------------------------------------------------------------------
-                    # Hash Entry Structure
-                    members = [('bucket', 'Bucket', 0x2),
-                               ('chain', 'Chain', 0x2),
-                               ('buckets', 'Buckets', 0x2),
-                               ('chains', 'Chains', 0x2)]
-                    struct = segm.struct('Hash', members)
-                    
-                    # Hash Table
-                    try:
-                        location = Dynamic.HASHTAB
-                        size = Dynamic.HASHTABSZ
-                    
-                    except:
-                        location = Dynamic.HASH
-                        size = Dynamic.SYMTAB - location
-                    
-                    f.seek(location - code.start_ea)
-                    for entry in xrange(size / 0x8):
-                        idaapi.create_struct(location + (entry * 0x8), 0x8, struct) 
-                    
-                    if kASLR:
-                        
-                        # --------------------------------------------------------------------------------------------------------
-                        # Relocation Entry Structure (with specific addends)
-                        members = [('offset', 'Offset (String Index)', 0x8),
-                                   ('info', 'Info (Symbol Index : Relocation Code)', 0x8),
-                                   ('addend', 'AddEnd', 0x8)]
-                        struct = segm.struct('Relocation', members)
-                        
-                        # Relocation Table (with specific addends)
-                        location = Dynamic.RELATAB
-                        
-                        f.seek(location - code.start_ea)
-                        for entry in xrange(Dynamic.RELATABSZ / 0x18):
-                            idaapi.create_struct(location + (entry * 0x18), 0x18, struct)
-                            idc.set_cmt(location + (entry * 0x18), Relocation(f).process(dumped, code.end_ea), False)
-                        
-                        # .init
-                        address = Dynamic.INIT
-                        idaapi.do_unknown(address, 0)
-                        idaapi.create_insn(address)
-                        idaapi.add_func(address, BADADDR)
-                        idaapi.set_name(address, '.init', SN_NOCHECK | SN_NOWARN)
-                    
-                    else:
-                        
-                        # --------------------------------------------------------------------------------------------------------
-                        # Symbol Entry Structure
-                        members = [('name', 'Name (String Index)', 0x4),
-                                   ('info', 'Info (Binding : Type)', 0x1),
-                                   ('other', 'Other', 0x1),
-                                   ('shtndx', 'Section Index', 0x2),
-                                   ('offset', 'Value', 0x8),
-                                   ('size', 'Size', 0x8)]
-                        struct = segm.struct('Symbol', members)
-                        
-                        # Symbol Table
-                        location = Dynamic.SYMTAB
-                        f.seek(location - code.start_ea)
-                        functions = {}
-                        
-                        idc.add_entry(location, location, '.symtab', False)
-                        
-                        for entry in xrange((Dynamic.STRTAB - location) / 0x18):
-                            idaapi.create_struct(location + (entry * 0x18), 0x18, struct)
-                            idc.set_cmt(location + (entry * 0x18), Symbol(f).process(functions), False)
-                            
-                        # --------------------------------------------------------------------------------------------------------
-                        # Dynamic String Table
-                        location = Dynamic.STRTAB
-                        
-                        idc.add_entry(location, location, '.strtab', False)
-                        
-                        # Functions
-                        for key in functions:
-                            idc.create_strlit(location + key, BADADDR)
-                            functions[key] = idc.get_strlit_contents(location + key, BADADDR)
-                            idc.set_cmt(location + key, 'Function', False)
-                            
-                        functions = sorted(functions.iteritems(), key = operator.itemgetter(0))
-                        #print('Functions: %s' % functions)
-                        
-                        # Resolve Functions
-                        location = Dynamic.SYMTAB
-                        f.seek(location - code.start_ea + 0x18)
-                        
-                        for entry in xrange((Dynamic.STRTAB - location - 0x18) / 0x18):
-                            Symbol(f).resolve(functions[entry][1])
-            
-            # Fix-up
-            if kASLR:
-            
-                address = relro.start_ea
-                del_items(address, DELIT_SIMPLE, relro.end_ea - address)
-                
-                while address < relro.end_ea:
-                    create_data(address, FF_QWORD, 0x8, BADNODE)
-                    address += 0x8
-            
-            address = code.start_ea
-            
-            # --------------------------------------------------------------------------------------------------------
-            # ELF Header Structure
-            members = [('File format', 0x4),
-                       ('File class', 0x1),
-                       ('Data encoding', 0x1),
-                       ('File version', 0x1),
-                       ('OS/ABI', 0x1),
-                       ('ABI version', 0x1),
-                       ('Padding', 0x7),
-                       ('File type', 0x2),
-                       ('Machine', 0x2),
-                       ('File version', 0x4),
-                       ('Entry point', 0x8),
-                       ('PHT file offset', 0x8),
-                       ('SHT file offset', 0x8),
-                       ('Processor-specific flags', 0x4),
-                       ('ELF header size', 0x2),
-                       ('PHT entry size', 0x2),
-                       ('Number of entries in PHT', 0x2),
-                       ('SHT entry size', 0x2),
-                       ('Number of entries in SHT', 0x2),
-                       ('SHT entry index for string table\n', 0x2)]
-            
-            for (comment, size) in members:
-                flags = idaapi.get_flags_by_size(size)
-                idc.create_data(address, flags if flags != 0 else FF_STRLIT, size, BADNODE)
-                idc.set_cmt(address, comment, False)
-                address += size
-            
-            for index, entry in enumerate(ps.E_SEGMENTS):
-            
-                # ELF Program Header Structure
-                members = [('Type: %s' % entry.name(), 0x4),
-                           ('Flags', 0x4),
-                           ('File offset', 0x8),
-                           ('Virtual address', 0x8),
-                           ('Physical address', 0x8),
-                           ('Size in file image', 0x8),
-                           ('Size in memory image', 0x8),
-                           ('Alignment\n', 0x8)]
-                
-                for (comment, size) in members:
-                    flags = idaapi.get_flags_by_size(size)
-                    
-                    idc.create_data(address, flags if flags != 0 else FF_STRLIT, size, BADNODE)
-                    idc.set_cmt(address, comment, False)
-                    address += size
-            
-            # Wait for the AutoAnalyzer to Complete...
-            print('# Waiting for the AutoAnalyzer to Complete...')
-            idaapi.auto_wait()
-            
-            if kASLR:
-            
-                # start
-                idc.add_entry(ps.E_START_ADDR, ps.E_START_ADDR, 'start', True)
-            
-                # Xfast_syscall
-                address = idaapi.find_binary(code.start_ea, code.end_ea, '0F 01 F8 65 48 89 24 25 A8 02 00 00 65 48 8B 24', 0x10, SEARCH_DOWN)
+            else:
                 idaapi.do_unknown(address, 0)
                 idaapi.create_insn(address)
                 idaapi.add_func(address, BADADDR)
-                idaapi.set_name(address, 'Xfast_syscall', SN_NOCHECK | SN_NOWARN)
-                
-                # --------------------------------------------------------------------------------------------------------
-                # Znullptr's syscalls
-                print('# Processing Znullptr\'s Syscalls...')
-                
-                # Syscall Entry Structure
-                members = [('narg', 'Number of Arguments', 0x4),
-                           ('_pad', 'Padding', 0x4),
-                           ('function', 'Function', 0x8),
-                           ('auevent', 'Augmented Event?', 0x2),
-                           ('_pad1', 'Padding', 0x2),
-                           ('_pad2', 'Padding', 0x4),
-                           ('trace_args_func', 'Trace Arguments Function', 0x8),
-                           ('entry', 'Entry', 0x4),
-                           ('return', 'Return', 0x4),
-                           ('flags', 'Flags', 0x4),
-                           ('thrcnt', 'Thread Count?', 0x4)]
-                struct = segm.struct('Syscall', members)
-                
-                znullptr(code.start_ea, code.end_ea, '4F 52 42 49 53 20 6B 65 72 6E 65 6C 20 53 45 4C 46', struct)
-            
-                # --------------------------------------------------------------------------------------------------------
-                # Chendo's cdevsw con-struct-or
-                print('# Processing Chendo\'s cdevsw structs...')
-                
-                # cdevsw Entry Structure
-                members = [('d_version', 'Version', 0x4),
-                           ('d_flags', 'Flags', 0x4),
-                           ('d_name', 'Name', 0x8),
-                           ('d_open', 'Open', 0x8),
-                           ('d_fdopen', 'File Descriptor Open', 0x8),
-                           ('d_close', 'Close', 0x8),
-                           ('d_read', 'Read', 0x8),
-                           ('d_write', 'Write', 0x8),
-                           ('d_ioctl', 'Input/Ouput Control', 0x8),
-                           ('d_poll', 'Poll', 0x8),
-                           ('d_mmap', 'Memory Mapping', 0x8),
-                           ('d_strategy', 'Strategy', 0x8),
-                           ('d_dump', 'Dump', 0x8),
-                           ('d_kqfilter', 'KQFilter', 0x8),
-                           ('d_purge', 'Purge', 0x8),
-                           ('d_mmap_single', 'Single Memory Mapping', 0x8),
-                           ('d_spare0', 'Spare0', 0x8),
-                           ('d_spare1', 'Spare1', 0x8),
-                           ('d_spare2', 'Spare2', 0x8),
-                           ('d_spare3', 'Spare3', 0x8),
-                           ('d_spare4', 'Spare4', 0x8),
-                           ('d_spare5', 'Spare5', 0x8),
-                           ('d_spare6', 'Spare6', 0x4),
-                           ('d_spare7', 'Spare7', 0x4)]
-                struct = segm.struct('cdevsw', members)
-                
-                chendo(data.start_ea, data.end_ea, '09 20 12 17', struct)
-            
-            try:
-                # --------------------------------------------------------------------------------------------------------
-                # Pablo's IDC
-                print('# Processing Pablo\'s Push IDC...')
-                
-                # Script 1) Push it real good...
-                pablo(code.start_ea, code.end_ea, 'C5 FA 5A C0 C5 F2 5A C9 C5 EA 5A D2 C5 FB 59 C1')
-                pablo(code.start_ea, code.end_ea, 'C5 F9 7E C0 31 C9')
-                pablo(code.start_ea, code.end_ea, '48 89 E0 55 53')
-                pablo(code.start_ea, code.end_ea, 'B8 2D 00 00 00 C3')
-                pablo(code.start_ea, code.end_ea, '31 C0 C3')
-                pablo(code.start_ea, code.end_ea, '55 48 89')
-                pablo(code.start_ea, code.end_ea, '48 81 EC A0 00 00 00 C7')
-                pablo(code.start_ea, code.end_ea, '48 81 EC A8 00 00 00')
-                
-                # Script 2) Fix-up Dumped Data Pointers...
-                if dumped or not kASLR:
-                    print('# Processing Pablo\'s Dumped Data Pointers IDC...')
-                    pablo(data.start_ea, data.end_ea, '?? FF FF FF FF')
-            
-            except:
-                pass
-            
-            if kASLR:
-                # --------------------------------------------------------------------------------------------------------
-                # Kiwidog's __stack_chk_fail
-                print('# Processing Kiwidog\'s Stack Functions...')
-                
-                kiwidog(code.start_ea, code.end_ea, '73 74 61 63 6B 20 6F 76 65 72 66 6C 6F 77 20 64 65 74 65 63 74 65 64 3B')
-    
-            # --------------------------------------------------------------------------------------------------------
-            # Final Pass
-            print('# Performing Final Pass...')
-            address = code.start_ea
-            while address < code.end_ea:
-                address = idaapi.find_not_func(address, SEARCH_DOWN)
-                
-                if idaapi.isUnknown(idaapi.getFlags(address)):
-                    idaapi.create_insn(address)
-                else:
-                    idc.add_func(address)
-                
                 address += 4
-            
-            print('# Done!')
-            return 1
     
-    # If run outside of IDA... parse the Binary and print the summary...
-    except:
-        print('*** Not running in IDA ***')
+    # Znullptr's Syscalls
+    def znullptr(address, end, search, struct):
         
-        if len(sys.argv) != 2:
-            sys.exit('Usage : %s <File>' % sys.argv[0])
+        magic = idaapi.find_binary(address, end, search, 0x10, idc.SEARCH_DOWN)
+        pattern = '%02X %02X %02X %02X FF FF FF FF' % (magic & 0xFF, ((magic >> 0x8) & 0xFF), ((magic >> 0x10) & 0xFF), ((magic >> 0x18) & 0xFF))
+        
+        sysvec = idaapi.find_binary(address, cvar.inf.maxEA, pattern, 0x10, idc.SEARCH_UP) - 0x60
+        idaapi.set_name(sysvec, 'sysentvec', SN_NOCHECK | SN_NOWARN)
+        
+        sysent = idaapi.get_qword(sysvec + 0x8)
+        idaapi.set_name(sysent, 'sv_table', SN_NOCHECK | SN_NOWARN)
+        
+        sysnames = idaapi.get_qword(sysvec + 0xD0)
+        idaapi.set_name(sysnames, 'sv_syscallnames', SN_NOCHECK | SN_NOWARN)
+        
+        # Get the list of syscalls
+        offset = idaapi.find_binary(address, cvar.inf.maxEA, '73 79 73 63 61 6C 6C 00 65 78 69 74 00', 0x10, SEARCH_DOWN)
+        
+        numsyscalls = idaapi.get_qword(sysvec)
+        
+        for entry in xrange(numsyscalls):
+            initial = sysnames + (entry * 0x8)
+            idc.create_data(initial, FF_QWORD, 0x8, BADNODE)
+            offset = idaapi.get_qword(initial)
+            
+            length = idaapi.get_max_strlit_length(offset, STRTYPE_C)
+            name = idaapi.get_strlit_contents(offset, length, STRTYPE_C)
+            
+            sysentoffset = sysent + 0x8 + (entry * 0x30)
+            idaapi.do_unknown_range(sysentoffset - 0x8, 0x30, 0)
+            idaapi.create_struct(sysentoffset - 0x8, 0x30, struct)
+            idc.set_cmt(sysentoffset - 0x8, '#%i' % entry, False)
+            
+            if '{' in name:
+                continue
+            
+            # Rename the functions
+            function = idaapi.get_qword(sysentoffset)
+            idaapi.set_name(function, name.replace('#', 'sys_'), SN_NOCHECK | SN_NOWARN)
+    
+    # Open File Dialog...
+    def accept_file(f, n):
+        try:
+            if not isinstance(n, (int, long)) or n == 0:
+                return 'PS4 - Kernel' if f.read(4) == '\x7FELF' and Binary(f).E_TYPE == Binary(f).ET_EXEC else 0
+        except:
+            pass
+    
+    # Load Input Binary...
+    def load_file(f, neflags, format):
+        
+        print('# PS4 Kernel Loader')
+        ps = Binary(f)
+        
+        # PS4 Processor, Compiler, Library
+        bitness = ps.procomp('metapc', CM_N64 | CM_M_NN | CM_CC_FASTCALL, 'gnulnx_x64')
+        
+        # Segment Loading...
+        for segm in ps.E_SEGMENTS:
+            if segm.name() == 'PHDR':
+            
+                kASLR = False if segm.FILE_SIZE == 0x118 else True
+            
+            # Process Loadable Segments...
+            if segm.name() in ['CODE', 'DATA', 'SCE_RELRO']:
+                
+                address = segm.MEM_ADDR
+                size = segm.MEM_SIZE
+                
+                # Dumped Kernel Fix-ups
+                if segm.name() in ['DATA', 'SCE_RELRO'] and (idaapi.get_segm_by_name('CODE').start_ea != 0xFFFFFFFF82200000 or not kASLR):
+                    offset = address - idaapi.get_segm_by_name('CODE').start_ea
+                    dumped = segm.MEM_SIZE
+                else:
+                    offset = segm.OFFSET
+                    dumped = segm.FILE_SIZE
+                
+                print('# Creating %s Segment...' % segm.name())
+                f.file2base(offset, address, address + dumped, FILEREG_PATCHABLE)
+                
+                idaapi.add_segm(0, address, address + size, segm.name(), segm.type(), ADDSEG_NOTRUNC | ADDSEG_FILLGAP)
+                
+                # Processor Specific Segment Details
+                idc.set_segm_addressing(address, bitness)
+                idc.set_segm_alignment(address, segm.alignment())
+                idc.set_segm_attr(address, SEGATTR_PERM, segm.flags())
+            
+            # Process Dynamic Segment...
+            elif segm.name() == 'DYNAMIC':
+                
+                code = idaapi.get_segm_by_name('CODE')
+                data = idaapi.get_segm_by_name('DATA')
+                relro = idaapi.get_segm_by_name('SCE_RELRO')
+                
+                # --------------------------------------------------------------------------------------------------------
+                # Dynamic Tag Entry Structure
+                members = [('tag', 'Tag', 0x8),
+                           ('value', 'Value', 0x8)]
+                struct = segm.struct('Tag', members)
+                
+                # Dynamic Tag Table
+                stubs = {}
+                modules = {}
+                location = segm.MEM_ADDR
+                
+                # Dumps are offset by a small amount
+                if code.start_ea != 0xFFFFFFFF82200000:
+                    dumped = code.start_ea - 0xFFFFFFFF82200000
+                else:
+                    dumped = 0
+                
+                f.seek(location - code.start_ea)
+                for entry in xrange(segm.MEM_SIZE / 0x10):
+                    idaapi.create_struct(location + (entry * 0x10), 0x10, struct)
+                    idc.set_cmt(location + (entry * 0x10), Dynamic(f).process(dumped, stubs, modules), False)
+                
+                # --------------------------------------------------------------------------------------------------------
+                # Hash Entry Structure
+                members = [('bucket', 'Bucket', 0x2),
+                           ('chain', 'Chain', 0x2),
+                           ('buckets', 'Buckets', 0x2),
+                           ('chains', 'Chains', 0x2)]
+                struct = segm.struct('Hash', members)
+                
+                # Hash Table
+                try:
+                    location = Dynamic.HASHTAB
+                    size = Dynamic.HASHTABSZ
+                
+                except:
+                    location = Dynamic.HASH
+                    size = Dynamic.SYMTAB - location
+                
+                f.seek(location - code.start_ea)
+                for entry in xrange(size / 0x8):
+                    idaapi.create_struct(location + (entry * 0x8), 0x8, struct)
+                
+                if kASLR:
+                    
+                    # --------------------------------------------------------------------------------------------------------
+                    # Relocation Entry Structure (with specific addends)
+                    members = [('offset', 'Offset (String Index)', 0x8),
+                               ('info', 'Info (Symbol Index : Relocation Code)', 0x8),
+                               ('addend', 'AddEnd', 0x8)]
+                    struct = segm.struct('Relocation', members)
+                    
+                    # Relocation Table (with specific addends)
+                    location = Dynamic.RELATAB
+                    
+                    f.seek(location - code.start_ea)
+                    for entry in xrange(Dynamic.RELATABSZ / 0x18):
+                        idaapi.create_struct(location + (entry * 0x18), 0x18, struct)
+                        idc.set_cmt(location + (entry * 0x18), Relocation(f).process(dumped, code.end_ea), False)
+                    
+                    # .init
+                    address = Dynamic.INIT
+                    idaapi.do_unknown(address, 0)
+                    idaapi.create_insn(address)
+                    idaapi.add_func(address, BADADDR)
+                    idaapi.set_name(address, '.init', SN_NOCHECK | SN_NOWARN)
+                
+                else:
+                    
+                    # --------------------------------------------------------------------------------------------------------
+                    # Symbol Entry Structure
+                    members = [('name', 'Name (String Index)', 0x4),
+                               ('info', 'Info (Binding : Type)', 0x1),
+                               ('other', 'Other', 0x1),
+                               ('shtndx', 'Section Index', 0x2),
+                               ('offset', 'Value', 0x8),
+                               ('size', 'Size', 0x8)]
+                    struct = segm.struct('Symbol', members)
+                    
+                    # Symbol Table
+                    location = Dynamic.SYMTAB
+                    f.seek(location - code.start_ea)
+                    functions = {}
+                    
+                    idc.add_entry(location, location, '.symtab', False)
+                    
+                    for entry in xrange((Dynamic.STRTAB - location) / 0x18):
+                        idaapi.create_struct(location + (entry * 0x18), 0x18, struct)
+                        idc.set_cmt(location + (entry * 0x18), Symbol(f).process(functions), False)
+                    
+                    # --------------------------------------------------------------------------------------------------------
+                    # Dynamic String Table
+                    location = Dynamic.STRTAB
+                    
+                    idc.add_entry(location, location, '.strtab', False)
+                    
+                    # Functions
+                    for key in functions:
+                        idc.create_strlit(location + key, BADADDR)
+                        functions[key] = idc.get_strlit_contents(location + key, BADADDR)
+                        idc.set_cmt(location + key, 'Function', False)
+                    
+                    functions = sorted(functions.iteritems(), key = operator.itemgetter(0))
+                    #print('Functions: %s' % functions)
+                    
+                    # Resolve Functions
+                    location = Dynamic.SYMTAB
+                    f.seek(location - code.start_ea + 0x18)
+                    
+                    for entry in xrange((Dynamic.STRTAB - location - 0x18) / 0x18):
+                        Symbol(f).resolve(functions[entry][1])
+        
+        # Fix-up
+        if kASLR:
+        
+            address = relro.start_ea
+            del_items(address, DELIT_SIMPLE, relro.end_ea - address)
+            
+            while address < relro.end_ea:
+                create_data(address, FF_QWORD, 0x8, BADNODE)
+                address += 0x8
+        
+        address = code.start_ea
+        
+        # --------------------------------------------------------------------------------------------------------
+        # ELF Header Structure
+        members = [('File format', 0x4),
+                   ('File class', 0x1),
+                   ('Data encoding', 0x1),
+                   ('File version', 0x1),
+                   ('OS/ABI', 0x1),
+                   ('ABI version', 0x1),
+                   ('Padding', 0x7),
+                   ('File type', 0x2),
+                   ('Machine', 0x2),
+                   ('File version', 0x4),
+                   ('Entry point', 0x8),
+                   ('PHT file offset', 0x8),
+                   ('SHT file offset', 0x8),
+                   ('Processor-specific flags', 0x4),
+                   ('ELF header size', 0x2),
+                   ('PHT entry size', 0x2),
+                   ('Number of entries in PHT', 0x2),
+                   ('SHT entry size', 0x2),
+                   ('Number of entries in SHT', 0x2),
+                   ('SHT entry index for string table\n', 0x2)]
+        
+        for (comment, size) in members:
+            flags = idaapi.get_flags_by_size(size)
+            idc.create_data(address, flags if flags != 0 else FF_STRLIT, size, BADNODE)
+            idc.set_cmt(address, comment, False)
+            address += size
+        
+        for index, entry in enumerate(ps.E_SEGMENTS):
+        
+            # ELF Program Header Structure
+            members = [('Type: %s' % entry.name(), 0x4),
+                       ('Flags', 0x4),
+                       ('File offset', 0x8),
+                       ('Virtual address', 0x8),
+                       ('Physical address', 0x8),
+                       ('Size in file image', 0x8),
+                       ('Size in memory image', 0x8),
+                       ('Alignment\n', 0x8)]
+            
+            for (comment, size) in members:
+                flags = idaapi.get_flags_by_size(size)
+                
+                idc.create_data(address, flags if flags != 0 else FF_STRLIT, size, BADNODE)
+                idc.set_cmt(address, comment, False)
+                address += size
+        
+        # Wait for the AutoAnalyzer to Complete...
+        print('# Waiting for the AutoAnalyzer to Complete...')
+        idaapi.auto_wait()
+        
+        if kASLR:
+        
+            # start
+            idc.add_entry(ps.E_START_ADDR, ps.E_START_ADDR, 'start', True)
+        
+            # Xfast_syscall
+            address = idaapi.find_binary(code.start_ea, code.end_ea, '0F 01 F8 65 48 89 24 25 A8 02 00 00 65 48 8B 24', 0x10, SEARCH_DOWN)
+            idaapi.do_unknown(address, 0)
+            idaapi.create_insn(address)
+            idaapi.add_func(address, BADADDR)
+            idaapi.set_name(address, 'Xfast_syscall', SN_NOCHECK | SN_NOWARN)
+            
+            # --------------------------------------------------------------------------------------------------------
+            # Znullptr's syscalls
+            print('# Processing Znullptr\'s Syscalls...')
+            
+            # Syscall Entry Structure
+            members = [('narg', 'Number of Arguments', 0x4),
+                       ('_pad', 'Padding', 0x4),
+                       ('function', 'Function', 0x8),
+                       ('auevent', 'Augmented Event?', 0x2),
+                       ('_pad1', 'Padding', 0x2),
+                       ('_pad2', 'Padding', 0x4),
+                       ('trace_args_func', 'Trace Arguments Function', 0x8),
+                       ('entry', 'Entry', 0x4),
+                       ('return', 'Return', 0x4),
+                       ('flags', 'Flags', 0x4),
+                       ('thrcnt', 'Thread Count?', 0x4)]
+            struct = segm.struct('Syscall', members)
+            
+            znullptr(code.start_ea, code.end_ea, '4F 52 42 49 53 20 6B 65 72 6E 65 6C 20 53 45 4C 46', struct)
+            
+            # --------------------------------------------------------------------------------------------------------
+            # Chendo's cdevsw con-struct-or
+            print('# Processing Chendo\'s cdevsw structs...')
+            
+            # cdevsw Entry Structure
+            members = [('d_version', 'Version', 0x4),
+                       ('d_flags', 'Flags', 0x4),
+                       ('d_name', 'Name', 0x8),
+                       ('d_open', 'Open', 0x8),
+                       ('d_fdopen', 'File Descriptor Open', 0x8),
+                       ('d_close', 'Close', 0x8),
+                       ('d_read', 'Read', 0x8),
+                       ('d_write', 'Write', 0x8),
+                       ('d_ioctl', 'Input/Ouput Control', 0x8),
+                       ('d_poll', 'Poll', 0x8),
+                       ('d_mmap', 'Memory Mapping', 0x8),
+                       ('d_strategy', 'Strategy', 0x8),
+                       ('d_dump', 'Dump', 0x8),
+                       ('d_kqfilter', 'KQFilter', 0x8),
+                       ('d_purge', 'Purge', 0x8),
+                       ('d_mmap_single', 'Single Memory Mapping', 0x8),
+                       ('d_spare0', 'Spare0', 0x8),
+                       ('d_spare1', 'Spare1', 0x8),
+                       ('d_spare2', 'Spare2', 0x8),
+                       ('d_spare3', 'Spare3', 0x8),
+                       ('d_spare4', 'Spare4', 0x8),
+                       ('d_spare5', 'Spare5', 0x8),
+                       ('d_spare6', 'Spare6', 0x4),
+                       ('d_spare7', 'Spare7', 0x4)]
+            struct = segm.struct('cdevsw', members)
+            
+            chendo(data.start_ea, data.end_ea, '09 20 12 17', struct)
         
         try:
-            ps = Binary(open(sys.argv[1], 'rb'))
-            print('Header:')                
-            pp(ps.__dict__)
+            # --------------------------------------------------------------------------------------------------------
+            # Pablo's IDC
+            print('# Processing Pablo\'s Push IDC...')
             
-            for index, entry in enumerate(ps.E_SEGMENTS):
-                print('Segment %i:' % index)
-                pp(entry.__dict__)
+            # Script 1) Push it real good...
+            pablo(code.start_ea, code.end_ea, 'C5 FA 5A C0 C5 F2 5A C9 C5 EA 5A D2 C5 FB 59 C1')
+            pablo(code.start_ea, code.end_ea, 'C5 F9 7E C0 31 C9')
+            pablo(code.start_ea, code.end_ea, '48 89 E0 55 53')
+            pablo(code.start_ea, code.end_ea, 'B8 2D 00 00 00 C3')
+            pablo(code.start_ea, code.end_ea, '31 C0 C3')
+            pablo(code.start_ea, code.end_ea, '55 48 89')
+            pablo(code.start_ea, code.end_ea, '48 81 EC A0 00 00 00 C7')
+            pablo(code.start_ea, code.end_ea, '48 81 EC A8 00 00 00')
             
-            for index, entry in enumerate(ps.E_SECTIONS):
-                print('Section %i:' % index)
-                pp(entry.__dict__)
+            # Script 2) Fix-up Dumped Data Pointers...
+            if dumped or not kASLR:
+                print('# Processing Pablo\'s Dumped Data Pointers IDC...')
+                pablo(data.start_ea, data.end_ea, '?? FF FF FF FF')
         
         except:
-            sys.exit('Failed to process %s! Potentially a malformed binary?' % sys.argv[1])
+            pass
+        
+        if kASLR:
+            # --------------------------------------------------------------------------------------------------------
+            # Kiwidog's __stack_chk_fail
+            print('# Processing Kiwidog\'s Stack Functions...')
+            
+            kiwidog(code.start_ea, code.end_ea, '73 74 61 63 6B 20 6F 76 65 72 66 6C 6F 77 20 64 65 74 65 63 74 65 64 3B')
+        
+        # --------------------------------------------------------------------------------------------------------
+        # Final Pass
+        print('# Performing Final Pass...')
+        address = code.start_ea
+        while address < code.end_ea:
+            address = idaapi.find_not_func(address, SEARCH_DOWN)
+            
+            if idaapi.isUnknown(idaapi.getFlags(address)):
+                idaapi.create_insn(address)
+            else:
+                idc.add_func(address)
+            
+            address += 4
+        
+        print('# Done!')
+        return 1
+
+# If run outside of IDA... parse the Binary and print the summary...
+except:
+    print('*** Not running in IDA ***')
+    
+    if len(sys.argv) != 2:
+        sys.exit('Usage : %s <File>' % sys.argv[0])
+    
+    try:
+        ps = Binary(open(sys.argv[1], 'rb'))
+        print('Header:')
+        pp(ps.__dict__)
+        
+        for index, entry in enumerate(ps.E_SEGMENTS):
+            print('Segment %i:' % index)
+            pp(entry.__dict__)
+        
+        for index, entry in enumerate(ps.E_SECTIONS):
+            print('Section %i:' % index)
+            pp(entry.__dict__)
+    
+    except:
+        sys.exit('Failed to process %s! Potentially a malformed binary?' % sys.argv[1])
 
 # PROGRAM END
