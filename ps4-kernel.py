@@ -653,8 +653,8 @@ class Symbol:
 
 # PROGRAM START
 try:
-    import idaapi
-    import idc
+    from idaapi import *
+    from idc import *
     
     # Chendo's cdevsw con-struct-or
     def chendo(address, end, search, struct):
