@@ -20,7 +20,7 @@ Major Thanks to...
 Extra Special Thanks for telling me my program sucks...
 # zecoxao
 
-ps4-kernel.py: IDA loader for reading Sony PlayStation(R) 4 Kernel files
+ps4_kernel.py: IDA loader for reading Sony PlayStation(R) 4 Kernel files
 
 '''
 
@@ -1094,7 +1094,7 @@ def load_file(f, neflags, format):
     while address < code.end_ea:
         address = idaapi.find_not_func(address, SEARCH_DOWN)
         
-        if idaapi.isUnknown(idaapi.getFlags(address)):
+        if idaapi.is_unknown(idaapi.get_flags(address)):
             idaapi.create_insn(address)
         else:
             idc.add_func(address)
