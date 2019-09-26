@@ -22,7 +22,7 @@ Extra Special Thanks for telling me my program sucks...
 ps4_kernel.py: IDA loader for reading Sony PlayStation(R) 4 Kernel files
 
 # Installation Instructions
-1) Place the ps4_kernel.py file in your IDA's loader directory
+1) Place the **ps4_kernel.py** file in your IDA's **loaders** directory
 2) Load a PS4 Dumped or Decrypted Kernel
 3) ???
 4) Profit
