@@ -24,3 +24,4 @@ Extra Special Thanks for telling me my program sucks...
 
 # Usage
 1) Load a PS4 Dumped (or Decrypted) Kernel file
+2) Select the option ending with **[ps4_kernel.py]**
