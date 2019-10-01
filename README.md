@@ -19,14 +19,8 @@ Major Thanks to...
 Extra Special Thanks for telling me my program sucks...
 * zecoxao
 
-ps4_kernel.py: IDA loader for reading Sony PlayStation(R) 4 Kernel files
-
-# Installation Instructions
+# Installation
 1) Place the **ps4_kernel.py** file in your IDA's **loaders** directory
-2) Load a PS4 Dumped or Decrypted Kernel
-3) ???
-4) Profit
 
-If you have any suggestions or ideas, please feel free to create pull requests! 
-
-To make the most out of this, we have to work together!
+# Usage
+1) Load a PS4 Dumped (or Decrypted) Kernel file
