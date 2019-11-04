@@ -26,13 +26,11 @@ ps4_kernel.py: IDA loader for reading Sony PlayStation(R) 4 Kernel files
 
 from idaapi import *
 from idc import *
-from pprint import pprint as pp
 
 import idaapi
 import idc
 import operator
 import struct
-import sys
 
 class Binary:
     
@@ -1086,20 +1084,6 @@ def load_file(f, neflags, format):
         print('# Processing Kiwidog\'s Stack Functions...')
         
         kiwidog(code.start_ea, code.end_ea, '73 74 61 63 6B 20 6F 76 65 72 66 6C 6F 77 20 64 65 74 65 63 74 65 64 3B')
-    
-    # --------------------------------------------------------------------------------------------------------
-    # Final Pass
-    print('# Performing Final Pass...')
-    address = code.start_ea
-    while address < code.end_ea:
-        address = idaapi.find_not_func(address, SEARCH_DOWN)
-        
-        if idaapi.is_unknown(idaapi.get_flags(address)):
-            idaapi.create_insn(address)
-        else:
-            idc.add_func(address)
-        
-        address += 4
     
     print('# Done!')
     return 1
