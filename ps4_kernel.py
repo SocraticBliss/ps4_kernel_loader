@@ -33,7 +33,7 @@ import operator
 import struct
 
 class Binary:
-    
+
     __slots__ = ('EI_MAGIC', 'EI_CLASS', 'EI_DATA', 'EI_VERSION',
                  'EI_OSABI', 'EI_PADDING', 'EI_ABIVERSION', 'EI_SIZE',
                  'E_TYPE', 'E_MACHINE', 'E_VERSION', 'E_START_ADDR',
@@ -60,10 +60,10 @@ class Binary:
     EM_X86_64                 = 0x3E
     
     def __init__(self, f):
-        
+    
         f.seek(0)
         
-        self.EI_MAGIC         = struct.unpack('<4s', f.read(4))[0]
+        self.EI_MAGIC         = struct.unpack('<I', f.read(4))[0]
         self.EI_CLASS         = struct.unpack('<B', f.read(1))[0]
         self.EI_DATA          = struct.unpack('<B', f.read(1))[0]
         self.EI_VERSION       = struct.unpack('<B', f.read(1))[0]
@@ -72,16 +72,13 @@ class Binary:
         self.EI_PADDING       = struct.unpack('6x', f.read(6))
         self.EI_SIZE          = struct.unpack('<B', f.read(1))[0]
         
-        Binary.FMT = '<I' if self.EI_CLASS == 0x1 else '<Q'
-        Binary.SIZE = struct.calcsize(Binary.FMT)
-        
         # Elf Properties
         self.E_TYPE           = struct.unpack('<H', f.read(2))[0]
         self.E_MACHINE        = struct.unpack('<H', f.read(2))[0]
         self.E_VERSION        = struct.unpack('<I', f.read(4))[0]
-        self.E_START_ADDR     = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
-        self.E_PHT_OFFSET     = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
-        self.E_SHT_OFFSET     = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
+        self.E_START_ADDR     = struct.unpack('<Q', f.read(8))[0]
+        self.E_PHT_OFFSET     = struct.unpack('<Q', f.read(8))[0]
+        self.E_SHT_OFFSET     = struct.unpack('<Q', f.read(8))[0]
         self.E_FLAGS          = struct.unpack('<I', f.read(4))[0]
         self.E_SIZE           = struct.unpack('<H', f.read(2))[0]
         self.E_PHT_SIZE       = struct.unpack('<H', f.read(2))[0]
@@ -101,7 +98,7 @@ class Binary:
         Binary.E_SECTIONS = [Section(f) for entry in xrange(self.E_SHT_COUNT)]
     
     def procomp(self, processor, pointer, til):
-        
+    
         # Processor Type
         idc.set_processor_type(processor, SETPROC_LOADER)
         
@@ -110,13 +107,13 @@ class Binary:
         idc.set_inf_attr(INF_MODEL, pointer)
         idc.set_inf_attr(INF_SIZEOF_BOOL, 0x1)
         idc.set_inf_attr(INF_SIZEOF_LONG, 0x8)
-        idc.set_inf_attr(INF_SIZEOF_LDBL, 0x10 if self.EI_CLASS == 0x2 else 0x8)
+        idc.set_inf_attr(INF_SIZEOF_LDBL, 0x10)
         
         # Type Library
         idc.add_default_til(til)
         
         # Loader Flags
-        idc.set_inf_attr(INF_LFLAGS, LFLG_64BIT if self.EI_CLASS == 0x2 else LFLG_PC_FLAT)
+        idc.set_inf_attr(INF_LFLAGS, LFLG_64BIT)
         
         # Assume GCC3 Names
         idc.set_inf_attr(INF_DEMNAMES, DEMNAM_GCC3)
@@ -125,13 +122,14 @@ class Binary:
         idc.set_inf_attr(INF_FILETYPE, FT_ELF)
         
         # Analysis Flags
-        idc.set_inf_attr(INF_AF, 0xC7FFFFD7)
+        idc.set_inf_attr(INF_AF, 0xC7FFBFD7)
         
         # Return Bitsize
         return self.EI_CLASS
+    
 
 class Segment:
-    
+
     __slots__ = ('TYPE', 'FLAGS', 'OFFSET', 'MEM_ADDR',
                  'FILE_ADDR', 'FILE_SIZE', 'MEM_SIZE', 'ALIGNMENT')
     
@@ -168,28 +166,18 @@ class Segment:
     AL_4K                  = 0x4000
     
     def __init__(self, f):
-        
-        self.TYPE         = struct.unpack('<I', f.read(4))[0]
-        
-        if Binary.FMT == '<I':
-            self.OFFSET    = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
-            self.MEM_ADDR  = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
-            self.FILE_ADDR = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
-            self.FILE_SIZE = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
-            self.MEM_SIZE  = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
-            self.FLAGS     = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
-            self.ALIGNMENT = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
-        else:
-            self.FLAGS     = struct.unpack('<I', f.read(4))[0]
-            self.OFFSET    = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
-            self.MEM_ADDR  = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
-            self.FILE_ADDR = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
-            self.FILE_SIZE = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
-            self.MEM_SIZE  = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
-            self.ALIGNMENT = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
+    
+        self.TYPE      = struct.unpack('<I', f.read(4))[0]
+        self.FLAGS     = struct.unpack('<I', f.read(4))[0]
+        self.OFFSET    = struct.unpack('<Q', f.read(8))[0]
+        self.MEM_ADDR  = struct.unpack('<Q', f.read(8))[0]
+        self.FILE_ADDR = struct.unpack('<Q', f.read(8))[0]
+        self.FILE_SIZE = struct.unpack('<Q', f.read(8))[0]
+        self.MEM_SIZE  = struct.unpack('<Q', f.read(8))[0]
+        self.ALIGNMENT = struct.unpack('<Q', f.read(8))[0]
     
     def alignment(self):
-        
+    
         return {
             Segment.AL_NONE            : saAbs,
             Segment.AL_BYTE            : saRelByte,
@@ -227,7 +215,7 @@ class Segment:
         }.get(self.TYPE, 'UNK')
     
     def struct(self, name, members, location = 0x0):
-        
+    
         if self.FLAGS > 7:
             return idc.get_struc_id(name)
         
@@ -262,28 +250,30 @@ class Segment:
             Segment.PT_GNU_EH_FRAME    : 'CONST',
             Segment.PT_GNU_STACK       : 'DATA',
         }.get(self.TYPE, 'UNK')
+    
 
 class Section:
-    
+
     __slots__ = ('NAME', 'TYPE', 'FLAGS', 'MEM_ADDR',
                  'OFFSET', 'FILE_SIZE', 'LINK', 'INFO',
                  'ALIGNMENT', 'FSE_SIZE')
     
     def __init__(self, f):
-        
+    
         self.NAME      = struct.unpack('<I', f.read(4))[0]
         self.TYPE      = struct.unpack('<I', f.read(4))[0]
-        self.FLAGS     = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
-        self.MEM_ADDR  = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
-        self.OFFSET    = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
-        self.FILE_SIZE = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
+        self.FLAGS     = struct.unpack('<Q', f.read(8))[0]
+        self.MEM_ADDR  = struct.unpack('<Q', f.read(8))[0]
+        self.OFFSET    = struct.unpack('<Q', f.read(8))[0]
+        self.FILE_SIZE = struct.unpack('<Q', f.read(8))[0]
         self.LINK      = struct.unpack('<I', f.read(4))[0]
         self.INFO      = struct.unpack('<I', f.read(4))[0]
-        self.ALIGNMENT = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
-        self.FSE_SIZE  = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
+        self.ALIGNMENT = struct.unpack('<Q', f.read(8))[0]
+        self.FSE_SIZE  = struct.unpack('<Q', f.read(8))[0]
+    
 
 class Dynamic:
-    
+
     __slots__ = ('TAG', 'VALUE', 'ID', 'VERSION_MAJOR', 'VERSION_MINOR', 'INDEX')
     
     # Dynamic Tags
@@ -332,11 +322,11 @@ class Dynamic:
     
     def __init__(self, f):
         
-        self.TAG   = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
-        self.VALUE = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
+        self.TAG   = struct.unpack('<Q', f.read(8))[0]
+        self.VALUE = struct.unpack('<Q', f.read(8))[0]
     
     def tag(self):
-        
+    
         return {
             Dynamic.DT_NULL                     : 'DT_NULL',
             Dynamic.DT_NEEDED                   : 'DT_NEEDED',
@@ -411,7 +401,7 @@ class Dynamic:
         }.get(self.TAG, 'Missing Dynamic Tag!!!')
     
     def lib_attribute(self):
-        
+    
         return {
             0x1  : 'AUTO_EXPORT',
             0x2  : 'WEAK_EXPORT',
@@ -421,7 +411,7 @@ class Dynamic:
         }.get(self.INDEX, 'Missing Import Library Attribute!!!')
     
     def mod_attribute(self):
-        
+    
         return {
             0x0  : 'NONE',
             0x1  : 'SCE_CANT_STOP',
@@ -433,7 +423,7 @@ class Dynamic:
         }.get(self.INDEX, 'Missing Module Attribute!!!')
     
     def process(self, dumped, stubs, modules):
-        
+    
         if self.TAG == Dynamic.DT_NEEDED:
             stubs[self.VALUE] = 0
         elif self.TAG == Dynamic.DT_PLTGOT:
@@ -517,9 +507,10 @@ class Dynamic:
                 stubs[self.INDEX] = 0
         
         return '%s | %#x' % (self.tag(), self.VALUE)
+    
 
 class Relocation:
-    
+
     __slots__ = ('OFFSET', 'INDEX', 'INFO', 'ADDEND', 'RELSTR')
     
     # PS4 (X86_64) Relocation Codes (40)
@@ -536,13 +527,13 @@ class Relocation:
     R_X86_64_ORBIS_GOTPCREL_LOAD             = 0x28
     
     def __init__(self, f):
-        
-        self.OFFSET = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
-        self.INFO   = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
-        self.ADDEND = struct.unpack(Binary.FMT, f.read(Binary.SIZE))[0]
+    
+        self.OFFSET = struct.unpack('<Q', f.read(8))[0]
+        self.INFO   = struct.unpack('<Q', f.read(8))[0]
+        self.ADDEND = struct.unpack('<Q', f.read(8))[0]
     
     def ps4(self):
-        
+    
         return {
             Relocation.R_X86_64_NONE                : 'R_X86_64_NONE',
             Relocation.R_X86_64_64                  : 'R_X86_64_64',
@@ -587,7 +578,7 @@ class Relocation:
         }.get(self.INFO, 'Missing PS4 Relocation Type!!!')
     
     def process(self, dumped, end):
-        
+    
         # String (Offset) == Base + AddEnd (B + A)
         if self.ps4() in ['R_X86_64_RELATIVE']:
             
@@ -602,9 +593,10 @@ class Relocation:
                 idaapi.create_data(self.ADDEND, FF_QWORD, 0x8, BADNODE)
             
             return '%#x | %s | %#x' % (self.OFFSET, self.ps4(), self.ADDEND)
+    
 
 class Symbol:
-    
+
     __slots__ = ('NAME', 'INFO', 'OTHER', 'INDEX', 'VALUE', 'SIZE')
     
     # Symbol Information
@@ -631,24 +623,16 @@ class Symbol:
     ST_WEAK_TLS        = 0x26
     
     def __init__(self, f):
-        
+    
         self.NAME      = struct.unpack('<I', f.read(4))[0]
-        
-        if Binary.FMT == '<I':
-            self.VALUE     = struct.unpack('<I', f.read(4))[0]
-            self.SIZE      = struct.unpack('<I', f.read(4))[0]
-            self.INFO      = struct.unpack('<B', f.read(1))[0]
-            self.OTHER     = struct.unpack('<B', f.read(1))[0]
-            self.INDEX     = struct.unpack('<H', f.read(2))[0]
-        else:
-            self.INFO      = struct.unpack('<B', f.read(1))[0]
-            self.OTHER     = struct.unpack('<B', f.read(1))[0]
-            self.INDEX     = struct.unpack('<H', f.read(2))[0]
-            self.VALUE     = struct.unpack('<Q', f.read(8))[0]
-            self.SIZE      = struct.unpack('<Q', f.read(8))[0]
+        self.INFO      = struct.unpack('<B', f.read(1))[0]
+        self.OTHER     = struct.unpack('<B', f.read(1))[0]
+        self.INDEX     = struct.unpack('<H', f.read(2))[0]
+        self.VALUE     = struct.unpack('<Q', f.read(8))[0]
+        self.SIZE      = struct.unpack('<Q', f.read(8))[0]
     
     def info(self):
-        
+    
         return {
             Symbol.ST_LOCAL_NONE      : 'Local : None',
             Symbol.ST_LOCAL_OBJECT    : 'Local : Object',
@@ -674,7 +658,7 @@ class Symbol:
         }.get(self.INFO, 'Missing Symbol Information!!!')
     
     def process(self, functions):
-        
+    
         if self.NAME != 0:
             functions[self.NAME] = 0
         
@@ -684,16 +668,26 @@ class Symbol:
         return self.info()
     
     def resolve(self, function):
-        
+    
         if 'Function' in self.info() and self.VALUE > 0:
             idc.set_name(self.VALUE, function, SN_NOCHECK | SN_NOWARN)
-
+    
 
 # PROGRAM START
 
+# Open File Dialog...
+def accept_file(f, n):
+
+    try:
+        if not isinstance(n, (int, long)) or n == 0:
+            return 'PS4 - Kernel' if f.read(4) == '\x7FELF' and Binary(f).E_TYPE == Binary(f).ET_EXEC else 0
+    
+    except:
+        pass
+
 # Chendo's cdevsw con-struct-or
 def chendo(address, end, search, struct):
-    
+
     while address < end:
         address = idaapi.find_binary(address, end, search, 0x10, SEARCH_DOWN)
         idaapi.do_unknown_range(address, 0xB0, 0)
@@ -702,7 +696,7 @@ def chendo(address, end, search, struct):
 
 # Kiwidog's __stack_chk_fail
 def kiwidog(address, end, search):
-    
+
     magic = idaapi.find_binary(address, end, search, 0x0, SEARCH_DOWN)
     function = idaapi.get_func(idaapi.get_first_dref_to(magic))
     idaapi.set_name(function.start_ea, '__stack_chk_fail', SN_NOCHECK | SN_NOWARN)
@@ -711,7 +705,7 @@ def kiwidog(address, end, search):
 
 # Pablo's IDC
 def pablo(address, end, search):
-    
+
     while address < end:
         address = idaapi.find_binary(address, end, search, 0x10, SEARCH_DOWN)
         
@@ -732,7 +726,7 @@ def pablo(address, end, search):
 
 # Znullptr's Syscalls
 def znullptr(address, end, search, struct):
-    
+
     magic = idaapi.find_binary(address, end, search, 0x10, idc.SEARCH_DOWN)
     pattern = '%02X %02X %02X %02X FF FF FF FF' % (magic & 0xFF, ((magic >> 0x8) & 0xFF), ((magic >> 0x10) & 0xFF), ((magic >> 0x18) & 0xFF))
     
@@ -769,19 +763,9 @@ def znullptr(address, end, search, struct):
         function = idaapi.get_qword(sysentoffset)
         idaapi.set_name(function, name.replace('#', 'sys_'), SN_NOCHECK | SN_NOWARN)
 
-# Open File Dialog...
-def accept_file(f, n):
-    
-    try:
-        if not isinstance(n, (int, long)) or n == 0:
-            return 'PS4 - Kernel' if f.read(4) == '\x7FELF' and Binary(f).E_TYPE == Binary(f).ET_EXEC else 0
-    
-    except:
-        pass
-
 # Load Input Binary...
 def load_file(f, neflags, format):
-    
+
     print('# PS4 Kernel Loader')
     ps = Binary(f)
     
