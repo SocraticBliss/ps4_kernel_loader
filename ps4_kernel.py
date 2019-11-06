@@ -122,7 +122,9 @@ class Binary:
         idc.set_inf_attr(INF_FILETYPE, FT_ELF)
         
         # Analysis Flags
-        idc.set_inf_attr(INF_AF, 0xC7FFBFD7)
+        # (unchecked) Delete instructions with no xrefs
+        # (unchecked) Coagulate data segments in the final pass
+        idc.set_inf_attr(INF_AF, 0xDFFFFFDF)
         
         # Return Bitsize
         return self.EI_CLASS
@@ -704,7 +706,7 @@ def kiwidog(address, end, search):
     idaapi.update_func(function)
 
 # Pablo's IDC
-def pablo(address, end, search):
+def pablo(mode, address, end, search):
 
     while address < end:
         address = idaapi.find_binary(address, end, search, 0x10, SEARCH_DOWN)
@@ -719,10 +721,11 @@ def pablo(address, end, search):
             address = offset + 4
         
         else:
+            address += mode
             idaapi.do_unknown(address, 0)
             idaapi.create_insn(address)
             idaapi.add_func(address, BADADDR)
-            address += 4
+            address += 1
 
 # Znullptr's Syscalls
 def znullptr(address, end, search, struct):
@@ -913,16 +916,7 @@ def load_file(f, neflags, format):
                 
                 for entry in xrange((Dynamic.STRTAB - location - 0x18) / 0x18):
                     Symbol(f).resolve(functions[entry][1])
-    
-    # Fix-up
-    if kASLR:
-        address = relro.start_ea
-        del_items(address, DELIT_SIMPLE, relro.end_ea - address)
-        
-        while address < relro.end_ea:
-            create_data(address, FF_QWORD, 0x8, BADNODE)
-            address += 0x8
-    
+
     address = code.start_ea
     
     # ELF Header Structure
@@ -970,10 +964,6 @@ def load_file(f, neflags, format):
             idc.create_data(address, flags if flags != 0 else FF_STRLIT, size, BADNODE)
             idc.set_cmt(address, comment, False)
             address += size
-    
-    # Wait for the AutoAnalyzer to Complete...
-    print('# Waiting for the AutoAnalyzer to Complete...')
-    idaapi.auto_wait()
     
     if kASLR:
         # Start Function
@@ -1045,19 +1035,62 @@ def load_file(f, neflags, format):
         print('# Processing Pablo\'s Push IDC...')
         
         # Script 1) Push it real good...
-        pablo(code.start_ea, code.end_ea, 'C5 FA 5A C0 C5 F2 5A C9 C5 EA 5A D2 C5 FB 59 C1')
-        pablo(code.start_ea, code.end_ea, 'C5 F9 7E C0 31 C9')
-        pablo(code.start_ea, code.end_ea, '48 89 E0 55 53')
-        pablo(code.start_ea, code.end_ea, 'B8 2D 00 00 00 C3')
-        pablo(code.start_ea, code.end_ea, '31 C0 C3')
-        pablo(code.start_ea, code.end_ea, '55 48 89')
-        pablo(code.start_ea, code.end_ea, '48 81 EC A0 00 00 00 C7')
-        pablo(code.start_ea, code.end_ea, '48 81 EC A8 00 00 00')
+        # Default patterns set
+        pablo(0, code.start_ea, 0x10, '55 48 89')
+        pablo(2, code.start_ea, code.end_ea, '90 90 55 48 ??')
+        pablo(2, code.start_ea, code.end_ea, 'C3 90 55 48 ??')
+        pablo(2, code.start_ea, code.end_ea, '66 90 55 48 ??')
+        pablo(2, code.start_ea, code.end_ea, 'C9 C3 55 48 ??')
+        pablo(2, code.start_ea, code.end_ea, '0F 0B 55 48 ??')
+        pablo(2, code.start_ea, code.end_ea, 'EB ?? 55 48 ??')
+        pablo(2, code.start_ea, code.end_ea, '5D C3 55 48 ??')
+        pablo(2, code.start_ea, code.end_ea, '5B C3 55 48 ??')
+        pablo(2, code.start_ea, code.end_ea, '90 90 55 41 ?? 41 ??')
+        pablo(2, code.start_ea, code.end_ea, '66 90 48 81 EC ?? 00 00 00')
+        pablo(2, code.start_ea, code.end_ea, '0F 0B 48 89 9D ?? ?? FF FF 49 89')
+        pablo(2, code.start_ea, code.end_ea, '90 90 53 4C 8B 54 24 20')
+        pablo(2, code.start_ea, code.end_ea, '90 90 55 41 56 53')
+        pablo(2, code.start_ea, code.end_ea, '90 90 53 48 89')
+        pablo(2, code.start_ea, code.end_ea, '90 90 41 ?? 41 ??')
+        pablo(3, code.start_ea, code.end_ea, '0F 0B 90 55 48 ??')
+        pablo(3, code.start_ea, code.end_ea, 'EB ?? 90 55 48 ??')
+        pablo(3, code.start_ea, code.end_ea, '41 5F C3 55 48 ??')
+        pablo(3, code.start_ea, code.end_ea, '41 5C C3 55 48 ??')
+        pablo(3, code.start_ea, code.end_ea, '31 C0 C3 55 48 ??')
+        pablo(3, code.start_ea, code.end_ea, '41 5D C3 55 48 ??')
+        pablo(3, code.start_ea, code.end_ea, '41 5E C3 55 48 ??')
+        pablo(3, code.start_ea, code.end_ea, '66 66 90 55 48 ??')
+        pablo(3, code.start_ea, code.end_ea, '0F 1F 00 55 48 ??')
+        pablo(3, code.start_ea, code.end_ea, '41 ?? C3 53 48')
+        pablo(3, code.start_ea, code.end_ea, '0F 1F 00 48 81 EC ?? 00 00 00')
+        pablo(4, code.start_ea, code.end_ea, '0F 1F 40 00 55 48 ??')
+        pablo(4, code.start_ea, code.end_ea, '0F 1F 40 00 48 81 EC ?? 00 00 00')
+        pablo(5, code.start_ea, code.end_ea, 'E9 ?? ?? ?? ?? 55 48 ??')
+        pablo(5, code.start_ea, code.end_ea, 'E8 ?? ?? ?? ?? 55 48 ??')
+        pablo(5, code.start_ea, code.end_ea, '48 83 C4 ?? C3 55 48 ??')
+        pablo(5, code.start_ea, code.end_ea, '0F 1F 44 00 00 55 48 ??')
+        pablo(5, code.start_ea, code.end_ea, '0F 1F 44 00 00 48 81 EC ?? 00 00 00')
+        pablo(6, code.start_ea, code.end_ea, 'E9 ?? ?? ?? ?? 90 55 48 ??')
+        pablo(6, code.start_ea, code.end_ea, 'E8 ?? ?? ?? ?? 90 55 48 ??')
+        pablo(6, code.start_ea, code.end_ea, '66 0F 1F 44 00 00 55 48 ??')
+        pablo(7, code.start_ea, code.end_ea, '0F 1F 80 00 00 00 00 55 48 ??')
+        pablo(8, code.start_ea, code.end_ea, '0F 1F 84 00 00 00 00 00 55 48 ??')
+        pablo(8, code.start_ea, code.end_ea, 'C3 0F 1F 80 00 00 00 00 48')
+        pablo(8, code.start_ea, code.end_ea, '0F 1F 84 00 00 00 00 00 53 48 83 EC')
+        
+        # Special cases patterns set
+        pablo(13, code.start_ea, code.end_ea, 'C3 90 90 90 90 90 90 90 90 90 90 90 90 48')
+        pablo(13, code.start_ea, code.end_ea, 'C3 90 90 90 90 90 90 90 90 90 90 90 90 55')
+        pablo(17, code.start_ea, code.end_ea, 'E9 ?? ?? ?? ?? 90 90 90 90 90 90 90 90 90 90 90 90 48')
+        pablo(19, code.start_ea, code.end_ea, 'E9 ?? ?? ?? ?? 90 90 90 90 90 90 90 90 90 90 90 90 90 90 48')
+        pablo(19, code.start_ea, code.end_ea, 'E8 ?? ?? ?? ?? 90 90 90 90 90 90 90 90 90 90 90 90 90 90 48')
+        pablo(20, code.start_ea, code.end_ea, 'E9 ?? ?? ?? ?? 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 48')
+        pablo(20, code.start_ea, code.end_ea, 'E9 ?? ?? ?? ?? 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 48')
         
         # Script 2) Fix-up Dumped Data Pointers...
         if dumped or not kASLR:
             print('# Processing Pablo\'s Dumped Data Pointers IDC...')
-            pablo(data.start_ea, data.end_ea, '?? FF FF FF FF')
+            pablo(0, data.start_ea, data.end_ea, '?? FF FF FF FF')
     
     except:
         pass
