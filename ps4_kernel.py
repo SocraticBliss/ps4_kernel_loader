@@ -63,7 +63,7 @@ class Binary:
     
         f.seek(0)
         
-        self.EI_MAGIC         = struct.unpack('<I', f.read(4))[0]
+        self.EI_MAGIC         = struct.unpack('4s', f.read(4))[0]
         self.EI_CLASS         = struct.unpack('<B', f.read(1))[0]
         self.EI_DATA          = struct.unpack('<B', f.read(1))[0]
         self.EI_VERSION       = struct.unpack('<B', f.read(1))[0]
