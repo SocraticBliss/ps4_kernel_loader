@@ -120,7 +120,7 @@ class Binary:
         idc.set_inf_attr(INF_LFLAGS, LFLG_64BIT)
         
         # Assume GCC3 Names
-        idc.set_inf_attr(INF_DEMNAMES, DEMNAM_GCC3)
+        idc.set_inf_attr(INF_DEMNAMES, DEMNAM_GCC3 | DEMNAM_NAME)
         
         # File Type
         idc.set_inf_attr(INF_FILETYPE, FT_ELF)
