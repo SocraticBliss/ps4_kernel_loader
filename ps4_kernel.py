@@ -87,6 +87,10 @@ class Binary:
         self.E_SHT_COUNT      = struct.unpack('<H', f.read(2))[0]
         self.E_SHT_INDEX      = struct.unpack('<H', f.read(2))[0]
         
+        # Prevent Other Binaries
+        if self.E_MACHINE != Binary.EM_X86_64:
+            return None
+        
         f.seek(self.E_PHT_OFFSET)
         
         # Elf Program Header Table
@@ -116,7 +120,7 @@ class Binary:
         idc.set_inf_attr(INF_LFLAGS, LFLG_64BIT)
         
         # Assume GCC3 Names
-        idc.set_inf_attr(INF_DEMNAMES, DEMNAM_GCC3 | DEMNAM_NAME)
+        idc.set_inf_attr(INF_DEMNAMES, DEMNAM_GCC3)
         
         # File Type
         idc.set_inf_attr(INF_FILETYPE, FT_ELF)
@@ -672,7 +676,7 @@ class Symbol:
     def resolve(self, function):
     
         if 'Function' in self.info() and self.VALUE > 0:
-            idc.set_name(self.VALUE, function, SN_NOCHECK | SN_NOWARN)
+            idc.set_name(self.VALUE, function, SN_NOCHECK | SN_NOWARN | SN_FORCE)
     
 
 # PROGRAM START
@@ -680,12 +684,13 @@ class Symbol:
 # Open File Dialog...
 def accept_file(f, n):
 
-    try:
-        if not isinstance(n, (int, long)) or n == 0:
-            return 'PS4 - Kernel' if f.read(4) == '\x7FELF' and Binary(f).E_TYPE == Binary(f).ET_EXEC else 0
+    ps4 = Binary(f)
     
-    except:
-        pass
+    # Non-Symbol Kernels
+    if ps4.E_START_ADDR > 0xFFFFFFFF82200000 and ps4.E_SEGMENTS[0].FILE_SIZE != 0x118:
+        return { 'format': 'PS4 - Kernel',
+                 'options': ACCEPT_FIRST }
+    return 0
 
 # Chendo's cdevsw con-struct-or
 def chendo(address, end, search, struct):
@@ -701,7 +706,7 @@ def kiwidog(address, end, search):
 
     magic = idaapi.find_binary(address, end, search, 0x0, SEARCH_DOWN)
     function = idaapi.get_func(idaapi.get_first_dref_to(magic))
-    idaapi.set_name(function.start_ea, '__stack_chk_fail', SN_NOCHECK | SN_NOWARN)
+    idaapi.set_name(function.start_ea, '__stack_chk_fail', SN_NOCHECK | SN_NOWARN | SN_FORCE)
     function.flags |= FUNC_NORET
     idaapi.update_func(function)
 
@@ -734,13 +739,13 @@ def znullptr(address, end, search, struct):
     pattern = '%02X %02X %02X %02X FF FF FF FF' % (magic & 0xFF, ((magic >> 0x8) & 0xFF), ((magic >> 0x10) & 0xFF), ((magic >> 0x18) & 0xFF))
     
     sysvec = idaapi.find_binary(address, cvar.inf.maxEA, pattern, 0x10, idc.SEARCH_UP) - 0x60
-    idaapi.set_name(sysvec, 'sysentvec', SN_NOCHECK | SN_NOWARN)
+    idaapi.set_name(sysvec, 'sysentvec', SN_NOCHECK | SN_NOWARN | SN_FORCE)
     
     sysent = idaapi.get_qword(sysvec + 0x8)
-    idaapi.set_name(sysent, 'sv_table', SN_NOCHECK | SN_NOWARN)
+    idaapi.set_name(sysent, 'sv_table', SN_NOCHECK | SN_NOWARN | SN_FORCE)
     
     sysnames = idaapi.get_qword(sysvec + 0xD0)
-    idaapi.set_name(sysnames, 'sv_syscallnames', SN_NOCHECK | SN_NOWARN)
+    idaapi.set_name(sysnames, 'sv_syscallnames', SN_NOCHECK | SN_NOWARN | SN_FORCE)
     
     # Get the list of syscalls
     offset = idaapi.find_binary(address, cvar.inf.maxEA, '73 79 73 63 61 6C 6C 00 65 78 69 74 00', 0x10, SEARCH_DOWN)
@@ -764,21 +769,19 @@ def znullptr(address, end, search, struct):
         
         # Rename the functions
         function = idaapi.get_qword(sysentoffset)
-        idaapi.set_name(function, name.replace('#', 'sys_'), SN_NOCHECK | SN_NOWARN)
+        idaapi.set_name(function, name.replace('#', 'sys_'), SN_NOCHECK | SN_NOWARN | SN_FORCE)
 
 # Load Input Binary...
 def load_file(f, neflags, format):
 
     print('# PS4 Kernel Loader')
-    ps = Binary(f)
+    ps4 = Binary(f)
     
     # PS4 Processor, Compiler, Library
-    bitness = ps.procomp('metapc', CM_N64 | CM_M_NN | CM_CC_FASTCALL, 'gnulnx_x64')
+    bitness = ps4.procomp('metapc', CM_N64 | CM_M_NN | CM_CC_FASTCALL, 'gnulnx_x64')
     
     # Segment Loading...
-    for segm in ps.E_SEGMENTS:
-        if segm.name() == 'PHDR':
-            kASLR = False if segm.FILE_SIZE == 0x118 else True
+    for segm in ps4.E_SEGMENTS:
         
         # Process Loadable Segments...
         if segm.name() in ['CODE', 'DATA', 'SCE_RELRO']:
@@ -786,7 +789,7 @@ def load_file(f, neflags, format):
             size = segm.MEM_SIZE
             
             # Dumped Kernel Fix-ups
-            if segm.name() in ['DATA', 'SCE_RELRO'] and (idaapi.get_segm_by_name('CODE').start_ea != 0xFFFFFFFF82200000 or not kASLR):
+            if segm.name() in ['DATA', 'SCE_RELRO'] and idaapi.get_segm_by_name('CODE').start_ea != 0xFFFFFFFF82200000:
                 offset = address - idaapi.get_segm_by_name('CODE').start_ea
                 dumped = segm.MEM_SIZE
             else:
@@ -852,71 +855,24 @@ def load_file(f, neflags, format):
             for entry in xrange(size / 0x8):
                 idaapi.create_struct(location + (entry * 0x8), 0x8, struct)
             
-            if kASLR:
-                # --------------------------------------------------------------------------------------------------------
-                # Relocation Entry Structure (with specific addends)
-                members = [('offset', 'Offset (String Index)', 0x8),
-                           ('info', 'Info (Symbol Index : Relocation Code)', 0x8),
-                           ('addend', 'AddEnd', 0x8)]
-                struct = segm.struct('Relocation', members)
-                
-                # Relocation Table (with specific addends)
-                location = Dynamic.RELATAB
-                
-                f.seek(location - code.start_ea)
-                for entry in xrange(Dynamic.RELATABSZ / 0x18):
-                    idaapi.create_struct(location + (entry * 0x18), 0x18, struct)
-                    idc.set_cmt(location + (entry * 0x18), Relocation(f).process(dumped, code.end_ea), False)
-                
-                # Initialization Function
-                idc.add_entry(Dynamic.INIT, Dynamic.INIT, '.init', True)
+            # --------------------------------------------------------------------------------------------------------
+            # Relocation Entry Structure (with specific addends)
+            members = [('offset', 'Offset (String Index)', 0x8),
+                       ('info', 'Info (Symbol Index : Relocation Code)', 0x8),
+                       ('addend', 'AddEnd', 0x8)]
+            struct = segm.struct('Relocation', members)
             
-            else:
-                # --------------------------------------------------------------------------------------------------------
-                # Symbol Entry Structure
-                members = [('name', 'Name (String Index)', 0x4),
-                           ('info', 'Info (Binding : Type)', 0x1),
-                           ('other', 'Other', 0x1),
-                           ('shtndx', 'Section Index', 0x2),
-                           ('offset', 'Value', 0x8),
-                           ('size', 'Size', 0x8)]
-                struct = segm.struct('Symbol', members)
-                
-                # Symbol Table
-                location = Dynamic.SYMTAB
-                f.seek(location - code.start_ea)
-                functions = {}
-                
-                # .symtab
-                idc.add_entry(location, location, '.symtab', False)
-                
-                for entry in xrange((Dynamic.STRTAB - location) / 0x18):
-                    idaapi.create_struct(location + (entry * 0x18), 0x18, struct)
-                    idc.set_cmt(location + (entry * 0x18), Symbol(f).process(functions), False)
-                
-                # --------------------------------------------------------------------------------------------------------
-                # Dynamic String Table
-                location = Dynamic.STRTAB
-                
-                # .strtab
-                idc.add_entry(location, location, '.strtab', False)
-                
-                # Functions
-                for key in functions:
-                    idc.create_strlit(location + key, BADADDR)
-                    functions[key] = idc.get_strlit_contents(location + key, BADADDR)
-                    idc.set_cmt(location + key, 'Function', False)
-                
-                functions = sorted(functions.iteritems(), key = operator.itemgetter(0))
-                #print('Functions: %s' % functions)
-                
-                # Resolve Functions
-                location = Dynamic.SYMTAB
-                f.seek(location - code.start_ea + 0x18)
-                
-                for entry in xrange((Dynamic.STRTAB - location - 0x18) / 0x18):
-                    Symbol(f).resolve(functions[entry][1])
-
+            # Relocation Table (with specific addends)
+            location = Dynamic.RELATAB
+            
+            f.seek(location - code.start_ea)
+            for entry in xrange(Dynamic.RELATABSZ / 0x18):
+                idaapi.create_struct(location + (entry * 0x18), 0x18, struct)
+                idc.set_cmt(location + (entry * 0x18), Relocation(f).process(dumped, code.end_ea), False)
+            
+            # Initialization Function
+            idc.add_entry(Dynamic.INIT, Dynamic.INIT, '.init', True)
+    
     address = code.start_ea
     
     # ELF Header Structure
@@ -947,7 +903,7 @@ def load_file(f, neflags, format):
         idc.set_cmt(address, comment, False)
         address += size
     
-    for index, entry in enumerate(ps.E_SEGMENTS):
+    for index, entry in enumerate(ps4.E_SEGMENTS):
         # ELF Program Header Structure
         members = [('Type: %s' % entry.name(), 0x4),
                    ('Flags', 0x4),
@@ -965,70 +921,69 @@ def load_file(f, neflags, format):
             idc.set_cmt(address, comment, False)
             address += size
     
-    if kASLR:
-        # Start Function
-        idc.add_entry(ps.E_START_ADDR, ps.E_START_ADDR, 'start', True)
-        
-        # Xfast_syscall
-        address = idaapi.find_binary(code.start_ea, code.end_ea, '0F 01 F8 65 48 89 24 25 A8 02 00 00 65 48 8B 24', 0x10, SEARCH_DOWN)
-        idaapi.do_unknown(address, 0)
-        idaapi.create_insn(address)
-        idaapi.add_func(address, BADADDR)
-        idaapi.set_name(address, 'Xfast_syscall', SN_NOCHECK | SN_NOWARN)
-        
-        # --------------------------------------------------------------------------------------------------------
-        # Znullptr's syscalls
-        print('# Processing Znullptr\'s Syscalls...')
-        
-        # Syscall Entry Structure
-        members = [('narg', 'Number of Arguments', 0x4),
-                   ('_pad', 'Padding', 0x4),
-                   ('function', 'Function', 0x8),
-                   ('auevent', 'Augmented Event?', 0x2),
-                   ('_pad1', 'Padding', 0x2),
-                   ('_pad2', 'Padding', 0x4),
-                   ('trace_args_func', 'Trace Arguments Function', 0x8),
-                   ('entry', 'Entry', 0x4),
-                   ('return', 'Return', 0x4),
-                   ('flags', 'Flags', 0x4),
-                   ('thrcnt', 'Thread Count?', 0x4)]
-        struct = segm.struct('Syscall', members)
-        
-        znullptr(code.start_ea, code.end_ea, '4F 52 42 49 53 20 6B 65 72 6E 65 6C 20 53 45 4C 46', struct)
-        
-        # --------------------------------------------------------------------------------------------------------
-        # Chendo's cdevsw con-struct-or
-        print('# Processing Chendo\'s cdevsw structs...')
-        
-        # cdevsw Entry Structure
-        members = [('d_version', 'Version', 0x4),
-                   ('d_flags', 'Flags', 0x4),
-                   ('d_name', 'Name', 0x8),
-                   ('d_open', 'Open', 0x8),
-                   ('d_fdopen', 'File Descriptor Open', 0x8),
-                   ('d_close', 'Close', 0x8),
-                   ('d_read', 'Read', 0x8),
-                   ('d_write', 'Write', 0x8),
-                   ('d_ioctl', 'Input/Ouput Control', 0x8),
-                   ('d_poll', 'Poll', 0x8),
-                   ('d_mmap', 'Memory Mapping', 0x8),
-                   ('d_strategy', 'Strategy', 0x8),
-                   ('d_dump', 'Dump', 0x8),
-                   ('d_kqfilter', 'KQFilter', 0x8),
-                   ('d_purge', 'Purge', 0x8),
-                   ('d_mmap_single', 'Single Memory Mapping', 0x8),
-                   ('d_spare0', 'Spare0', 0x8),
-                   ('d_spare1', 'Spare1', 0x8),
-                   ('d_spare2', 'Spare2', 0x8),
-                   ('d_spare3', 'Spare3', 0x8),
-                   ('d_spare4', 'Spare4', 0x8),
-                   ('d_spare5', 'Spare5', 0x8),
-                   ('d_spare6', 'Spare6', 0x4),
-                   ('d_spare7', 'Spare7', 0x4)]
-        struct = segm.struct('cdevsw', members)
-        
-        chendo(data.start_ea, data.end_ea, '09 20 12 17', struct)
+    # Start Function
+    idc.add_entry(ps4.E_START_ADDR, ps4.E_START_ADDR, 'start', True)
     
+    # Xfast_syscall
+    address = idaapi.find_binary(code.start_ea, code.end_ea, '0F 01 F8 65 48 89 24 25 A8 02 00 00 65 48 8B 24', 0x10, SEARCH_DOWN)
+    idaapi.do_unknown(address, 0)
+    idaapi.create_insn(address)
+    idaapi.add_func(address, BADADDR)
+    idaapi.set_name(address, 'Xfast_syscall', SN_NOCHECK | SN_NOWARN | SN_FORCE)
+    
+    # --------------------------------------------------------------------------------------------------------
+    # Znullptr's syscalls
+    print('# Processing Znullptr\'s Syscalls...')
+    
+    # Syscall Entry Structure
+    members = [('narg', 'Number of Arguments', 0x4),
+               ('_pad', 'Padding', 0x4),
+               ('function', 'Function', 0x8),
+               ('auevent', 'Augmented Event?', 0x2),
+               ('_pad1', 'Padding', 0x2),
+               ('_pad2', 'Padding', 0x4),
+               ('trace_args_func', 'Trace Arguments Function', 0x8),
+               ('entry', 'Entry', 0x4),
+               ('return', 'Return', 0x4),
+               ('flags', 'Flags', 0x4),
+               ('thrcnt', 'Thread Count?', 0x4)]
+    struct = segm.struct('Syscall', members)
+    
+    znullptr(code.start_ea, code.end_ea, '4F 52 42 49 53 20 6B 65 72 6E 65 6C 20 53 45 4C 46', struct)
+    
+    # --------------------------------------------------------------------------------------------------------
+    # Chendo's cdevsw con-struct-or
+    print('# Processing Chendo\'s Structures...')
+    
+    # cdevsw Entry Structure
+    members = [('d_version', 'Version', 0x4),
+               ('d_flags', 'Flags', 0x4),
+               ('d_name', 'Name', 0x8),
+               ('d_open', 'Open', 0x8),
+               ('d_fdopen', 'File Descriptor Open', 0x8),
+               ('d_close', 'Close', 0x8),
+               ('d_read', 'Read', 0x8),
+               ('d_write', 'Write', 0x8),
+               ('d_ioctl', 'Input/Ouput Control', 0x8),
+               ('d_poll', 'Poll', 0x8),
+               ('d_mmap', 'Memory Mapping', 0x8),
+               ('d_strategy', 'Strategy', 0x8),
+               ('d_dump', 'Dump', 0x8),
+               ('d_kqfilter', 'KQFilter', 0x8),
+               ('d_purge', 'Purge', 0x8),
+               ('d_mmap_single', 'Single Memory Mapping', 0x8),
+               ('d_spare0', 'Spare0', 0x8),
+               ('d_spare1', 'Spare1', 0x8),
+               ('d_spare2', 'Spare2', 0x8),
+               ('d_spare3', 'Spare3', 0x8),
+               ('d_spare4', 'Spare4', 0x8),
+               ('d_spare5', 'Spare5', 0x8),
+               ('d_spare6', 'Spare6', 0x4),
+               ('d_spare7', 'Spare7', 0x4)]
+    struct = segm.struct('cdevsw', members)
+    
+    chendo(data.start_ea, data.end_ea, '09 20 12 17', struct)
+       
     # --------------------------------------------------------------------------------------------------------
     # Pablo's IDC
     try:
@@ -1088,19 +1043,18 @@ def load_file(f, neflags, format):
         pablo(20, code.start_ea, code.end_ea, 'E9 ?? ?? ?? ?? 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 48')
         
         # Script 2) Fix-up Dumped Data Pointers...
-        if dumped or not kASLR:
+        if dumped:
             print('# Processing Pablo\'s Dumped Data Pointers IDC...')
             pablo(0, data.start_ea, data.end_ea, '?? FF FF FF FF')
-    
+        
     except:
         pass
-    
+        
     # --------------------------------------------------------------------------------------------------------
     # Kiwidog's __stack_chk_fail
-    if kASLR:
-        print('# Processing Kiwidog\'s Stack Functions...')
-        
-        kiwidog(code.start_ea, code.end_ea, '73 74 61 63 6B 20 6F 76 65 72 66 6C 6F 77 20 64 65 74 65 63 74 65 64 3B')
+    print('# Processing Kiwidog\'s Stack Functions...')
+    
+    kiwidog(code.start_ea, code.end_ea, '73 74 61 63 6B 20 6F 76 65 72 66 6C 6F 77 20 64 65 74 65 63 74 65 64 3B')
     
     print('# Done!')
     return 1
