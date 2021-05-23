@@ -94,12 +94,12 @@ class Binary:
         f.seek(self.E_PHT_OFFSET)
         
         # Elf Program Header Table
-        Binary.E_SEGMENTS = [Segment(f) for entry in xrange(self.E_PHT_COUNT)]
+        Binary.E_SEGMENTS = [Segment(f) for entry in range(self.E_PHT_COUNT)]
         
         f.seek(self.E_SHT_OFFSET)
         
         # Elf Section Header Table
-        Binary.E_SECTIONS = [Section(f) for entry in xrange(self.E_SHT_COUNT)]
+        Binary.E_SECTIONS = [Section(f) for entry in range(self.E_SHT_COUNT)]
     
     def procomp(self, processor, pointer, til):
     
@@ -247,14 +247,15 @@ class Segment:
             Segment.PT_DYNAMIC         : 'DATA',
             Segment.PT_INTERP          : 'CONST',
             Segment.PT_NOTE            : 'CONST',
-            Segment.PT_PHDR            : 'CODE',
+            Segment.PT_PHDR            : 'CONST',
             Segment.PT_TLS             : 'BSS',
             Segment.PT_SCE_DYNLIBDATA  : 'CONST',
-            Segment.PT_SCE_PROCPARAM   : 'CONST',
+            Segment.PT_SCE_PROCPARAM   : 'DATA',
             Segment.PT_SCE_MODULEPARAM : 'CONST',
             Segment.PT_SCE_RELRO       : 'DATA',
             Segment.PT_GNU_EH_FRAME    : 'CONST',
-            Segment.PT_GNU_STACK       : 'DATA',
+            Segment.PT_SCE_COMMENT     : 'CONST',
+            Segment.PT_SCE_LIBVERSION  : 'CONST',
         }.get(self.TYPE, 'UNK')
     
 
@@ -288,7 +289,7 @@ class Dynamic:
     DT_SONAME, DT_RPATH, DT_SYMBOLIC, DT_REL, DT_RELSZ, DT_RELENT, DT_PLTREL,
     DT_DEBUG, DT_TEXTREL, DT_JMPREL, DT_BIND_NOW, DT_INIT_ARRAY, DT_FINI_ARRAY,
     DT_INIT_ARRAYSZ, DT_FINI_ARRAYSZ, DT_RUNPATH, DT_FLAGS, DT_ENCODING, DT_PREINIT_ARRAY,
-    DT_PREINIT_ARRAYSZ)         = xrange(0x22)
+    DT_PREINIT_ARRAYSZ)         = range(0x22)
     DT_SCE_IDTABENTSZ           = 0x61000005
     DT_SCE_FINGERPRINT          = 0x61000007
     DT_SCE_ORIGINAL_FILENAME    = 0x61000009
@@ -529,7 +530,7 @@ class Relocation:
     R_X86_64_GOTOFF64, R_X86_64_GOTPC32, R_X86_64_GOT64, R_X86_64_GOTPCREL64,
     R_X86_64_GOTPC64, R_X86_64_GOTPLT64, R_X86_64_PLTOFF64, R_X86_64_SIZE32,
     R_X86_64_SIZE64, R_X86_64_GOTPC32_TLSDESC, R_X86_64_TLSDESC_CALL, R_X86_64_TLSDESC,
-    R_X86_64_IRELATIVE, R_X86_64_RELATIVE64) = xrange(0x27)
+    R_X86_64_IRELATIVE, R_X86_64_RELATIVE64) = range(0x27)
     R_X86_64_ORBIS_GOTPCREL_LOAD             = 0x28
     
     def __init__(self, f):
@@ -633,7 +634,7 @@ class Symbol:
         self.NAME      = struct.unpack('<I', f.read(4))[0]
         self.INFO      = struct.unpack('<B', f.read(1))[0]
         self.OTHER     = struct.unpack('<B', f.read(1))[0]
-        self.INDEX     = struct.unpack('<H', f.read(2))[0]
+        self.SHINDEX   = struct.unpack('<H', f.read(2))[0]
         self.VALUE     = struct.unpack('<Q', f.read(8))[0]
         self.SIZE      = struct.unpack('<Q', f.read(8))[0]
     
@@ -697,7 +698,7 @@ def chendo(address, end, search, struct):
 
     while address < end:
         address = idaapi.find_binary(address, end, search, 0x10, SEARCH_DOWN)
-        idaapi.do_unknown_range(address, 0xB0, 0)
+        idaapi.del_items(address, 0xB0, 0)
         idaapi.create_struct(address, 0xB0, struct)
         address += 0x8
 
@@ -719,7 +720,7 @@ def pablo(mode, address, end, search):
         if address > idaapi.get_segm_by_name('CODE').end_ea:
             offset = address - 0x3
             
-            if idaapi.isUnknown(idaapi.getFlags(offset)):
+            if idaapi.is_unknown(idaapi.getFlags(offset)):
                 if idaapi.get_qword(offset) <= end:
                     idaapi.create_data(offset, FF_QWORD, 0x8, BADNODE)
             
@@ -727,7 +728,7 @@ def pablo(mode, address, end, search):
         
         else:
             address += mode
-            idaapi.do_unknown(address, 0)
+            idaapi.del_items(address, 0)
             idaapi.create_insn(address)
             idaapi.add_func(address, BADADDR)
             address += 1
@@ -751,25 +752,31 @@ def znullptr(address, end, search, struct):
     offset = idaapi.find_binary(address, cvar.inf.maxEA, '73 79 73 63 61 6C 6C 00 65 78 69 74 00', 0x10, SEARCH_DOWN)
     
     numsyscalls = idaapi.get_qword(sysvec)
-    for entry in xrange(numsyscalls):
+    for entry in range(numsyscalls):
         initial = sysnames + (entry * 0x8)
         idc.create_data(initial, FF_QWORD, 0x8, BADNODE)
         offset = idaapi.get_qword(initial)
         
         length = idaapi.get_max_strlit_length(offset, STRTYPE_C)
-        name = idaapi.get_strlit_contents(offset, length, STRTYPE_C)
+        name = idaapi.get_strlit_contents(offset, length, STRTYPE_C).decode()
+        
+        # Skip
+        if 'obs_{' in name:
+            name = '%i' % entry
+        elif '#' in name:
+            name = name.split('#')[1]
+        elif '.' in name:
+            name = name.split('.')[1]
         
         sysentoffset = sysent + 0x8 + (entry * 0x30)
-        idaapi.do_unknown_range(sysentoffset - 0x8, 0x30, 0)
-        idaapi.create_struct(sysentoffset - 0x8, 0x30, struct)
+        idaapi.del_items(sysentoffset - 0x8, 0x30, 0)
+        idaapi.create_struct(sysentoffset - 0x8, 0x30, struct, 0x1)
         idc.set_cmt(sysentoffset - 0x8, '#%i' % entry, False)
-        
-        if '{' in name:
-            continue
         
         # Rename the functions
         function = idaapi.get_qword(sysentoffset)
-        idaapi.set_name(function, name.replace('#', 'sys_'), SN_NOCHECK | SN_NOWARN | SN_FORCE)
+        idaapi.set_name(function, 'sys_' + name, SN_NOCHECK | SN_NOWARN | SN_FORCE)
+        idc.apply_type(function, idc.parse_decl('__int64 sys_%s(struct thread* td, struct default_uap* uap);' % name, 0), TINFO_DEFINITE)
 
 # Load Input Binary...
 def load_file(f, neflags, format):
@@ -830,7 +837,7 @@ def load_file(f, neflags, format):
                 dumped = 0
             
             f.seek(location - code.start_ea)
-            for entry in xrange(segm.MEM_SIZE / 0x10):
+            for entry in range(int(segm.MEM_SIZE / 0x10)):
                 idaapi.create_struct(location + (entry * 0x10), 0x10, struct)
                 idc.set_cmt(location + (entry * 0x10), Dynamic(f).process(dumped, stubs, modules), False)
             
@@ -852,7 +859,7 @@ def load_file(f, neflags, format):
                 size = Dynamic.SYMTAB - location
             
             f.seek(location - code.start_ea)
-            for entry in xrange(size / 0x8):
+            for entry in range(int(size / 0x8)):
                 idaapi.create_struct(location + (entry * 0x8), 0x8, struct)
             
             # --------------------------------------------------------------------------------------------------------
@@ -866,7 +873,7 @@ def load_file(f, neflags, format):
             location = Dynamic.RELATAB
             
             f.seek(location - code.start_ea)
-            for entry in xrange(Dynamic.RELATABSZ / 0x18):
+            for entry in range(int(Dynamic.RELATABSZ / 0x18)):
                 idaapi.create_struct(location + (entry * 0x18), 0x18, struct)
                 idc.set_cmt(location + (entry * 0x18), Relocation(f).process(dumped, code.end_ea), False)
             
@@ -926,7 +933,7 @@ def load_file(f, neflags, format):
     
     # Xfast_syscall
     address = idaapi.find_binary(code.start_ea, code.end_ea, '0F 01 F8 65 48 89 24 25 A8 02 00 00 65 48 8B 24', 0x10, SEARCH_DOWN)
-    idaapi.do_unknown(address, 0)
+    idaapi.del_items(address, 0)
     idaapi.create_insn(address)
     idaapi.add_func(address, BADADDR)
     idaapi.set_name(address, 'Xfast_syscall', SN_NOCHECK | SN_NOWARN | SN_FORCE)
