@@ -117,7 +117,7 @@ class Binary:
         idc.add_default_til(til)
         
         # Loader Flags
-        idc.set_inf_attr(INF_LFLAGS, LFLG_64BIT)
+        #idc.set_inf_attr(INF_LFLAGS, LFLG_64BIT)
         
         # Assume GCC3 Names
         idc.set_inf_attr(INF_DEMNAMES, DEMNAM_GCC3 | DEMNAM_NAME)
@@ -739,7 +739,7 @@ def znullptr(address, end, search, struct):
     magic = idaapi.find_binary(address, end, search, 0x10, idc.SEARCH_DOWN)
     pattern = '%02X %02X %02X %02X FF FF FF FF' % (magic & 0xFF, ((magic >> 0x8) & 0xFF), ((magic >> 0x10) & 0xFF), ((magic >> 0x18) & 0xFF))
     
-    sysvec = idaapi.find_binary(address, cvar.inf.maxEA, pattern, 0x10, idc.SEARCH_UP) - 0x60
+    sysvec = idaapi.find_binary(address, cvar.inf.max_ea, pattern, 0x10, idc.SEARCH_UP) - 0x60
     idaapi.set_name(sysvec, 'sysentvec', SN_NOCHECK | SN_NOWARN | SN_FORCE)
     
     sysent = idaapi.get_qword(sysvec + 0x8)
@@ -749,7 +749,7 @@ def znullptr(address, end, search, struct):
     idaapi.set_name(sysnames, 'sv_syscallnames', SN_NOCHECK | SN_NOWARN | SN_FORCE)
     
     # Get the list of syscalls
-    offset = idaapi.find_binary(address, cvar.inf.maxEA, '73 79 73 63 61 6C 6C 00 65 78 69 74 00', 0x10, SEARCH_DOWN)
+    offset = idaapi.find_binary(address, cvar.inf.max_ea, '73 79 73 63 61 6C 6C 00 65 78 69 74 00', 0x10, SEARCH_DOWN)
     
     numsyscalls = idaapi.get_qword(sysvec)
     for entry in range(numsyscalls):
@@ -770,7 +770,7 @@ def znullptr(address, end, search, struct):
         
         sysentoffset = sysent + 0x8 + (entry * 0x30)
         idaapi.del_items(sysentoffset - 0x8, 0x30, 0)
-        idaapi.create_struct(sysentoffset - 0x8, 0x30, struct, 0x1)
+        idaapi.create_struct(sysentoffset - 0x8, 0x30, struct)
         idc.set_cmt(sysentoffset - 0x8, '#%i' % entry, False)
         
         # Rename the functions
