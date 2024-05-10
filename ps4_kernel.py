@@ -57,7 +57,7 @@ class Binary:
     ET_HIPROC                 = 0xffff
     
     # Elf Architecture
-    EM_X86_64                 = 0x3E
+    EM_X86_64                 = 0x3e
     
     def __init__(self, f):
     
@@ -91,12 +91,18 @@ class Binary:
         if self.E_MACHINE != Binary.EM_X86_64:
             return None
         
-        f.seek(self.E_PHT_OFFSET)
+        try:
+            f.seek(self.E_PHT_OFFSET)
+        except:
+            return None
         
         # Elf Program Header Table
         Binary.E_SEGMENTS = [Segment(f) for entry in range(self.E_PHT_COUNT)]
         
-        f.seek(self.E_SHT_OFFSET)
+        try:
+            f.seek(self.E_SHT_OFFSET)
+        except:
+            return None
         
         # Elf Section Header Table
         Binary.E_SECTIONS = [Section(f) for entry in range(self.E_SHT_COUNT)]
@@ -685,12 +691,14 @@ class Symbol:
 # Open File Dialog...
 def accept_file(f, n):
 
-    ps4 = Binary(f)
-    
-    # Non-Symbol Kernels
-    if ps4.E_START_ADDR > 0xFFFFFFFF82200000 and ps4.E_SEGMENTS[0].FILE_SIZE != 0x118:
-        return { 'format': 'PS4 - Kernel',
-                 'options': ACCEPT_FIRST }
+    if f.size() > 0x40:
+        
+        ps4 = Binary(f)
+        
+        # Non-Symbol Kernels
+        if ps4.E_START_ADDR > 0xFFFFFFFF82200000 and ps4.E_SEGMENTS[0].FILE_SIZE != 0x118:
+            return { 'format'  : 'PS4 - Kernel',
+                     'options' : ACCEPT_FIRST }
     return 0
 
 # Chendo's cdevsw con-struct-or
@@ -990,7 +998,7 @@ def load_file(f, neflags, format):
     struct = segm.struct('cdevsw', members)
     
     chendo(data.start_ea, data.end_ea, '09 20 12 17', struct)
-       
+    
     # --------------------------------------------------------------------------------------------------------
     # Pablo's IDC
     try:
@@ -1056,7 +1064,7 @@ def load_file(f, neflags, format):
         
     except:
         pass
-        
+    
     # --------------------------------------------------------------------------------------------------------
     # Kiwidog's __stack_chk_fail
     print('# Processing Kiwidog\'s Stack Functions...')
