@@ -690,15 +690,15 @@ class Symbol:
 
 # Open File Dialog...
 def accept_file(f, n):
-
-    if f.size() > 0x40:
-        
+    
+    # Only support using 64-bit IDA
+    if cvar.inf.is_64bit() and f.size() > 0x40:
         ps4 = Binary(f)
         
         # Non-Symbol Kernels
         if ps4.E_START_ADDR > 0xFFFFFFFF82200000 and ps4.E_SEGMENTS[0].FILE_SIZE != 0x118:
             return { 'format'  : 'PS4 - Kernel',
-                     'options' : ACCEPT_FIRST }
+                    'options' : ACCEPT_FIRST }
     return 0
 
 # Chendo's cdevsw con-struct-or
