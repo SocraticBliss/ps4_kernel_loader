@@ -691,29 +691,45 @@ class Symbol:
 # Open File Dialog...
 def accept_file(f, n):
     
-    # Only support using 64-bit IDA
-    if cvar.inf.is_64bit() and f.size() > 0x40:
+    # Only support using 64-bit IDA - Will fix this later...
+    
+    #if cvar.inf.is_64bit() and f.size() > 0x40:
+    if f.size() > 0x40:
         ps4 = Binary(f)
-        
-        # Non-Symbol Kernels
-        if ps4.E_START_ADDR > 0xFFFFFFFF82200000 and ps4.E_SEGMENTS[0].FILE_SIZE != 0x118:
-            return { 'format'  : 'PS4 - Kernel',
-                    'options' : ACCEPT_FIRST }
+    
+    # Non-Symbol Kernels
+    if ps4.E_START_ADDR > 0xFFFFFFFF82200000 and ps4.E_SEGMENTS[0].FILE_SIZE != 0x118:
+        return { 'format'  : 'PS4 - Kernel',
+                 'options' : ACCEPT_FIRST }
+    
     return 0
+
+# Since IDA cannot create a compatibility layer to save its life...
+def find_binary(address, end, search, format, flags):
+    
+    # Is this really so hard ilfak?
+    if idaapi.IDA_SDK_VERSION > 760:
+        binpat = idaapi.compiled_binpat_vec_t()
+        idaapi.parse_binpat_str(binpat, address, search, format)
+        address, _ = idaapi.bin_search3(address, end, binpat, SEARCH_DOWN)
+    else:
+        address = idaapi.find_binary(address, end, search, format, flags)
+    
+    return address
 
 # Chendo's cdevsw con-struct-or
 def chendo(address, end, search, struct):
-
+    
     while address < end:
-        address = idaapi.find_binary(address, end, search, 0x10, SEARCH_DOWN)
+        address = find_binary(address, end, search, 0x10, SEARCH_DOWN)
         idaapi.del_items(address, 0xB0, 0)
         idaapi.create_struct(address, 0xB0, struct)
         address += 0x8
 
 # Kiwidog's __stack_chk_fail
 def kiwidog(address, end, search):
-
-    magic = idaapi.find_binary(address, end, search, 0x0, SEARCH_DOWN)
+    
+    magic = find_binary(address, end, search, 0x0, SEARCH_DOWN)
     function = idaapi.get_func(idaapi.get_first_dref_to(magic))
     idaapi.set_name(function.start_ea, '__stack_chk_fail', SN_NOCHECK | SN_NOWARN | SN_FORCE)
     function.flags |= FUNC_NORET
@@ -721,9 +737,9 @@ def kiwidog(address, end, search):
 
 # Pablo's IDC
 def pablo(mode, address, end, search):
-
+    
     while address < end:
-        address = idaapi.find_binary(address, end, search, 0x10, SEARCH_DOWN)
+        address = find_binary(address, end, search, 0x10, SEARCH_DOWN)
         
         if address > idaapi.get_segm_by_name('CODE').end_ea:
             offset = address - 0x3
@@ -743,11 +759,11 @@ def pablo(mode, address, end, search):
 
 # Znullptr's Syscalls
 def znullptr(address, end, search, struct):
-
-    magic = idaapi.find_binary(address, end, search, 0x10, idc.SEARCH_DOWN)
+    
+    magic = find_binary(address, end, search, 0x10, SEARCH_DOWN)
     pattern = '%02X %02X %02X %02X FF FF FF FF' % (magic & 0xFF, ((magic >> 0x8) & 0xFF), ((magic >> 0x10) & 0xFF), ((magic >> 0x18) & 0xFF))
     
-    sysvec = idaapi.find_binary(address, cvar.inf.max_ea, pattern, 0x10, idc.SEARCH_UP) - 0x60
+    sysvec = find_binary(end, 0xFFFFFFFFFFFFFFFF, pattern, 0x10, SEARCH_UP) - 0x60 #cvar.inf.max_ea
     idaapi.set_name(sysvec, 'sysentvec', SN_NOCHECK | SN_NOWARN | SN_FORCE)
     
     sysent = idaapi.get_qword(sysvec + 0x8)
@@ -757,7 +773,7 @@ def znullptr(address, end, search, struct):
     idaapi.set_name(sysnames, 'sv_syscallnames', SN_NOCHECK | SN_NOWARN | SN_FORCE)
     
     # Get the list of syscalls
-    offset = idaapi.find_binary(address, cvar.inf.max_ea, '73 79 73 63 61 6C 6C 00 65 78 69 74 00', 0x10, SEARCH_DOWN)
+    offset = find_binary(address, 0xFFFFFFFFFFFFFFFF, '73 79 73 63 61 6C 6C 00 65 78 69 74 00', 0x10, SEARCH_DOWN) #cvar.inf.max_ea
     
     numsyscalls = idaapi.get_qword(sysvec)
     for entry in range(numsyscalls):
@@ -783,7 +799,13 @@ def znullptr(address, end, search, struct):
         
         # Rename the functions
         function = idaapi.get_qword(sysentoffset)
-        idaapi.set_name(function, 'sys_' + name, SN_NOCHECK | SN_NOWARN | SN_FORCE)
+        name = 'sys_' + name
+        
+        # Compatibility ? Unsure why we have to encode the string for python 2...
+        if idaapi.IDA_SDK_VERSION < 750:
+            name = name.encode()
+        
+        idaapi.set_name(function, name, SN_NOCHECK | SN_NOWARN | SN_FORCE)
         idc.apply_type(function, idc.parse_decl('__int64 sys_%s(struct thread* td, struct default_uap* uap);' % name, 0), TINFO_DEFINITE)
 
 # Load Input Binary...
@@ -940,7 +962,7 @@ def load_file(f, neflags, format):
     idc.add_entry(ps4.E_START_ADDR, ps4.E_START_ADDR, 'start', True)
     
     # Xfast_syscall
-    address = idaapi.find_binary(code.start_ea, code.end_ea, '0F 01 F8 65 48 89 24 25 A8 02 00 00 65 48 8B 24', 0x10, SEARCH_DOWN)
+    address = find_binary(code.start_ea, code.end_ea, '0F 01 F8 65 48 89 24 25 A8 02 00 00 65 48 8B 24', 0x10, SEARCH_DOWN)
     idaapi.del_items(address, 0)
     idaapi.create_insn(address)
     idaapi.add_func(address, BADADDR)
